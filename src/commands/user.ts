@@ -12,7 +12,10 @@ interface MyContext extends Context {
 export function user(bot: Telegraf<MyContext>) {
   return async (ctx: MyContext) => {
     const userId = ctx.from?.id.toString();
-    if (!userId) return;
+    if (!userId) {
+      ctx.reply('Error: User ID not found.');
+      return;
+    }
 
     const hasAccess = await checkAccess(userId);
     
@@ -25,12 +28,29 @@ export function user(bot: Telegraf<MyContext>) {
       await saveToken(token, userId, ctx.from?.username || '');
 
       const apiKey = process.env.ADRINOLINK_API_KEY || '';
-      const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
-      const alias = `${userId}-${token.split('-')[2]}-TIME`;
-      const response = await axios.get(`https://adrinolinks.in/api?api=${apiKey}&url=${encodeURIComponent(url)}&alias=${alias}`);
-      const shortLink = response.data.shorturl;
+      if (!apiKey) {
+        ctx.reply('Error: API key is missing.');
+        return;
+      }
 
-      ctx.reply(`Click the link below to get 24-hour access:\n${shortLink}`);
+      // Generate timestamp for alias (replacing TIME)
+      const timestamp = new Date().toISOString().replace(/[-:.T]/g, '').slice(0, 14); // e.g., 20250701122530
+      const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
+      const alias = `${userId}-${token.split('-')[2]}-${timestamp}`;
+
+      try {
+        const response = await axios.get(`https://adrinolinks.in/api?api=${apiKey}&url=${encodeURIComponent(url)}&alias=${alias}`);
+        const shortLink = response.data.shortenedUrl; // Use 'shortenedUrl' as per API response
+
+        if (response.data.status === 'success' && shortLink) {
+          ctx.reply(`Click the link below to get 24-hour access:\n${shortLink}`);
+        } else {
+          ctx.reply('Error: Failed to shorten the link. Please try again later.');
+        }
+      } catch (error) {
+        console.error('Error shortening link:', error);
+        ctx.reply('Error: Unable to generate access link. Please try again later.');
+      }
     }
 
     bot.on('text', async (textCtx: MyContext) => {

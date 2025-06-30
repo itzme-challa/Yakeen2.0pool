@@ -1,5 +1,5 @@
 import { Context, Markup, Telegraf } from 'telegraf';
-import { checkAccess, generateToken, saveToken, getSubjects, getChapters, getContent, checkToken, grantAccess } from '../utils/firebase';
+import { checkAccess, generateToken, saveToken, getSubjects, getChapters, getContent, checkToken, grantAccess, getUnusedToken } from '../utils/firebase';
 import { paginate } from '../utils/pagination';
 import axios from 'axios';
 
@@ -8,6 +8,9 @@ interface MyContext extends Context {
     state?: string;
   };
 }
+
+const ADMIN_IDS = ['6930703214', '6930903213'];
+const TOPIC_GROUP_ID = '-1002813390895'; // Replace with actual topic group chat ID
 
 export function user(bot: Telegraf<MyContext>) {
   return async (ctx: MyContext) => {
@@ -21,8 +24,16 @@ export function user(bot: Telegraf<MyContext>) {
       ctx.reply('Select a subject:', paginate(subjects, 0, 'subject'));
       ctx.session = { ...ctx.session, state: 'subject' };
     } else {
-      const token = await generateToken(userId);
-      await saveToken(token, userId, ctx.from?.username || '');
+      ctx.reply('Hey dear, welcome! To access all lectures of Yakeen 2.0 2026, you need to generate a token. Please click the following to continue for 24 hours (to access all lectures).');
+
+      const existingToken = await getUnusedToken(userId);
+      let token: string;
+      if (existingToken) {
+        token = existingToken;
+      } else {
+        token = await generateToken(userId);
+        await saveToken(token, userId, ctx.from?.username || '');
+      }
 
       const apiKey = process.env.ADRINOLINK_API_KEY || '';
       const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
@@ -36,7 +47,13 @@ export function user(bot: Telegraf<MyContext>) {
         ctx.reply(`Click the link below to get 24-hour access:\n${shortLink}`);
       } catch (error) {
         console.error('Adrinolink API error:', error);
-        ctx.reply('Failed to generate access link. Please try again later.');
+        const errorMessage = `Error for user ${userId} (@${ctx.from?.username || 'unknown'}): ${error instanceof Error ? error.message : 'Unknown error'}`;
+        for (const adminId of ADMIN_IDS) {
+          await bot.telegram.sendMessage(adminId, errorMessage).catch(err => {
+            console.error(`Failed to send error to admin ${adminId}:`, err);
+          });
+        }
+        ctx.reply('Failed to generate access link. Please contact the admin: @itzfew');
       }
     }
 
@@ -85,11 +102,24 @@ export function user(bot: Telegraf<MyContext>) {
         const content = await getContent(subject, chapter, contentType);
         const messageId = content[lectureNum];
         if (messageId) {
-          await queryCtx.telegram.forwardMessage(
-            queryCtx.chat?.id!,
-            process.env.GROUP_CHAT_ID || '-1001234567890',
-            parseInt(messageId)
-          );
+          const [topicId, msgId] = messageId.split('/');
+          try {
+            await queryCtx.telegram.forwardMessage(
+              queryCtx.chat?.id!,
+              TOPIC_GROUP_ID,
+              parseInt(msgId),
+              { message_thread_id: parseInt(topicId) }
+            );
+          } catch (error) {
+            console.error('Message forwarding error:', error);
+            const errorMessage = `Error forwarding message for user ${queryCtx.from?.id} (@${queryCtx.from?.username || 'unknown'}): Message ID ${messageId} in group ${TOPIC_GROUP_ID}`;
+            for (const adminId of ADMIN_IDS) {
+              await bot.telegram.sendMessage(adminId, errorMessage).catch(err => {
+                console.error(`Failed to send error to admin ${adminId}:`, err);
+              });
+            }
+            queryCtx.reply('Failed to forward lecture. Please contact the admin: @itzfew');
+          }
         } else {
           queryCtx.reply('Lecture not found.');
         }

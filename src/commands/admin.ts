@@ -1,24 +1,29 @@
-import { Context, Markup } from 'telegraf';
+import { Context, Markup, Telegraf } from 'telegraf';
 import { getSubjects, saveContent } from '../utils/firebase';
 import { paginate } from '../utils/pagination';
 
-export function admin() {
-  return async (ctx: Context) => {
+interface MyContext extends Context {
+  session: {
+    state?: string;
+    messageId?: number;
+  };
+}
+
+export function admin(bot: Telegraf<MyContext>) {
+  return async (ctx: MyContext) => {
     const subjects = ['Zoology', 'Botany', 'Physics', 'Organic Chemistry', 'Inorganic Chemistry', 'Physical Chemistry'];
     
-    // Handle subject selection
     ctx.reply('Select a subject:', paginate(subjects, 0, 'subject')).then(msg => {
       ctx.session = { ...ctx.session, state: 'subject', messageId: msg.message_id };
     });
 
-    // Handle callback queries
-    bot.on('callback_query', async (queryCtx) => {
+    bot.on('callback_query', async (queryCtx: MyContext) => {
       const data = queryCtx.callbackQuery?.data;
       if (!data) return;
 
       if (data.startsWith('subject_')) {
         const subject = data.split('_')[1];
-        const chapters = await getChapters(subject); // Assume this fetches chapters from Firebase
+        const chapters = await getChapters(subject);
         queryCtx.reply('Select a chapter:', paginate(chapters, 0, `chapter_${subject}`));
         queryCtx.session = { ...queryCtx.session, state: `chapter_${subject}` };
       } else if (data.startsWith('chapter_')) {
@@ -36,30 +41,27 @@ export function admin() {
       }
     });
 
-    // Handle message ID input
-    bot.on('text', async (textCtx) => {
+    bot.on('text', async (textCtx: MyContext) => {
       if (textCtx.session?.state?.startsWith('message_')) {
         const [_, subject, chapter, contentType] = textCtx.session.state.split('_');
-        const messageIds = textCtx.message?.text?.split(';').reduce((acc, pair) => {
+        const messageIds = textCtx.message.text?.split(';').reduce((acc: Record<string, string>, pair: string) => {
           const [num, id] = pair.split(',');
           acc[num] = id;
           return acc;
-        }, {} as Record<string, string>);
+        }, {});
         
         await saveContent(subject, chapter, contentType, messageIds);
         textCtx.reply('Content saved successfully!');
-        textCtx.session = { ...textCtx.session, state: null };
+        textCtx.session = { ...textCtx.session, state: undefined };
       }
     });
   };
 }
 
-async function getChapters(subject: string): Promise<string[]> {
-  // This should fetch chapters from Firebase based on subject
-  // Example for Zoology
+async function get Chapters(subject: string): Promise<string[]> {
   if (subject === 'Zoology') {
     return ['Biomolecules', 'Cell Structure', 'Animal Kingdom', 'Structural Organisation', 
             'Human Physiology', 'Evolution', 'Genetics'];
   }
-  return []; // Add other subjects as needed
+  return [];
 }

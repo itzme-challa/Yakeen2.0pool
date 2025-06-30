@@ -43,7 +43,7 @@ export function admin(bot: Telegraf<MyContext>) {
       const data = callbackQuery.data;
       if (data.startsWith('subject_')) {
         const subject = data.split('_')[1];
-        const chapters = await getChapters(subject);
+        const chapters = await getAdminChapters(subject); // Use renamed function
         queryCtx.reply('Select a chapter:', paginate(chapters, 0, `chapter_${subject}`));
         queryCtx.session = { ...queryCtx.session, state: `chapter_${subject}` };
       } else if (data.startsWith('chapter_')) {
@@ -76,7 +76,7 @@ export function admin(bot: Telegraf<MyContext>) {
           
           await saveContent(subject, chapter, contentType, messageIds);
           textCtx.reply('Content saved successfully!');
-          textCtx.session = { ...ctx.session, state: undefined };
+          textCtx.session = { ...textCtx.session, state: undefined };
         } catch (error) {
           textCtx.reply(`Error saving content: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`);
         }
@@ -85,7 +85,7 @@ export function admin(bot: Telegraf<MyContext>) {
   };
 }
 
-async function getChapters(subject: string): Promise<string[]> {
+async function getAdminChapters(subject: string): Promise<string[]> {
   switch (subject) {
     case 'Zoology':
       return ['Biomolecules', 'Cell Structure', 'Animal Kingdom', 'Structural Organisation', 

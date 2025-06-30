@@ -47,59 +47,54 @@ export function user(bot: Telegraf<MyContext>) {
       let token: string;
       let shortLink: string | undefined;
 
-      if (existingTokenData && existingTokenData.token && existingTokenData.createdAt) {
-        // Check if the token was created on the same day
-        if (isSameDay(existingTokenData.createdAt)) {
-          token = existingTokenData.token;
-          // Assume shortLink is stored in the token data; if not, regenerate it
-          if (existingTokenData.shortLink) {
-            shortLink = existingTokenData.shortLink;
-          } else {
-            const apiKey = process.env.ADRINOLINK_API_KEY || '';
-            const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
-            const now = new Date();
-            const timestamp = now.toISOString().replace(/[-:T.]/g, '').slice(0, 14);
-            const alias = `${userId}-${token.split('-')[2]}-${timestamp}`;
-            
-            try {
-              const response = await axios.get(`https://adrinolinks.in/api?api=${apiKey}&url=${encodeURIComponent(url)}&alias=${alias}`);
-              shortLink = response.data.shortenedUrl;
-              if (!shortLink || response.data.status !== 'success') {
-                throw new Error('Failed to generate short link');
-              }
-              // Save the shortLink with the token for future reuse
-              await saveToken(token, userId, ctx.from?.username || '', shortLink);
-            } catch (error) {
-              console.error('Adrinolink API error:', error);
-              const errorMessage = `Error for user ${userId} (@${ctx.from?.username || 'unknown'}): ${error instanceof Error ? error.message : 'Unknown error'}`;
-              for (const adminId of ADMIN_IDS) {
-                await bot.telegram.sendMessage(adminId, errorMessage).catch(err => {
-                  console.error(`Failed to send error to admin ${adminId}:`, err);
-                });
-              }
-              ctx.reply('Failed to generate access link. Please contact the admin: @itzfew');
-              return;
+      if (existingTokenData && isSameDay(existingTokenData.createdAt)) {
+        // Reuse token and shortLink if from the same day
+        token = existingTokenData.token;
+        shortLink = existingTokenData.shortLink;
+        if (!shortLink) {
+          // Regenerate shortLink if not stored
+          const apiKey = process.env.ADRINOLINK_API_KEY || '';
+          const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
+          const now = new Date();
+          const timestamp = now.toISOString().replace(/[-:T.]/g, '').slice(0, 14); // e.g., 20250630231111
+          const alias = `${userId}-${token.split('-')[2]}-${timestamp}`;
+          
+          try {
+            const response = await axios.get(`https://adrinolinks.in/api?api=${apiKey}&url=${encodeURIComponent(url)}&alias=${alias}`);
+            shortLink = response.data.shortenedUrl;
+            if (!shortLink || response.data.status !== 'success') {
+              throw new Error('Failed to generate short link');
             }
+            // Update token with shortLink
+            await saveToken(token, userId, ctx.from?.username || '', shortLink);
+          } catch (error) {
+            console.error('Adrinolink API error:', error);
+            const errorMessage = `Error for user ${userId} (@${ctx.from?.username || 'unknown'}): ${error instanceof Error ? error.message : 'Unknown error'}`;
+            for (const adminId of ADMIN_IDS) {
+              await bot.telegram.sendMessage(adminId, errorMessage).catch(err => {
+                console.error(`Failed to send error to admin ${adminId}:`, err);
+              });
+            }
+            ctx.reply('Failed to generate access link. Please contact the admin: @itzfew');
+            return;
           }
         }
-      }
-
-      // If no valid unused token for today, generate a new one
-      if (!shortLink) {
+      } else {
+        // Generate new token and shortLink
         token = await generateToken(userId);
         const apiKey = process.env.ADRINOLINK_API_KEY || '';
         const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
         const now = new Date();
-        const timestamp = now.toISOString().replace(/[-:T.]/g, '').slice(0, 14);
+        const timestamp = now.toISOString().replace(/[-:T.]/g, '').slice(0, 14); // e.g., 20250630231111
         const alias = `${userId}-${token.split('-')[2]}-${timestamp}`;
         
         try {
           const response = await axios.get(`https://adrinolinks.in/api?api=${apiKey}&url=${encodeURIComponent(url)}&alias=${alias}`);
-          shortLink = response.data.shortedUrl;
+          shortLink = response.data.shortenedUrl;
           if (!shortLink || response.data.status !== 'success') {
             throw new Error('Failed to generate short link');
           }
-          // Save the new token and shortLink
+          // Save new token with shortLink
           await saveToken(token, userId, ctx.from?.username || '', shortLink);
         } catch (error) {
           console.error('Adrinolink API error:', error);
@@ -141,7 +136,7 @@ export function user(bot: Telegraf<MyContext>) {
       if (data.startsWith('subject_')) {
         const subject = data.split('_')[1];
         const chapters = await getChapters(subject);
-        queryCtx.reply('Select a chapter:', paginate(chapters, 0, `chapter_${subject}`));
+        queryCtx.reply('Select a chapter:', paginate(tchapters, 0, `chapter_${subject}`));
         queryCtx.session = { ...queryCtx.session, state: `chapter_${subject}` };
       } else if (data.startsWith('chapter_')) {
         const [_, subject, chapter] = data.split('_');

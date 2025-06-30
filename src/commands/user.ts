@@ -28,6 +28,17 @@ function getFormattedDate(): string {
   return `${day}${month}${year}`;
 }
 
+// Helper function to parse messageId (e.g., "1>92/123" -> { lectureNum: "1", threadId: "92", messageId: "123" })
+function parseMessageId(messageId: string): { lectureNum: string; threadId: string; messageId: string } | null {
+  const match = messageId.match(/^(\d+)>(\d+)\/(\d+)$/);
+  if (!match) return null;
+  return {
+    lectureNum: match[1],
+    threadId: match[2],
+    messageId: match[3]
+  };
+}
+
 // Helper function to generate or retrieve token
 async function getOrGenerateToken(userId: string): Promise<string> {
   const today = getFormattedDate();
@@ -156,6 +167,7 @@ export function user(bot: Telegraf<MyContext>) {
         } else if (data.startsWith('content_')) {
           const [_, subject, chapter, contentType] = data.split('_');
           const content = await getContent(subject, chapter, contentType);
+          console.log(`Content for ${subject}/${chapter}/${contentType}:`, content); // Debug log
           const buttons = Object.keys(content).map(num => 
             [Markup.button.callback(`Lecture ${num}`, `lecture_${subject}_${chapter}_${contentType}_${num}`)]
           );
@@ -164,15 +176,49 @@ export function user(bot: Telegraf<MyContext>) {
           const [_, subject, chapter, contentType, lectureNum] = data.split('_');
           const content = await getContent(subject, chapter, contentType);
           const messageId = content[lectureNum];
+          console.log(`Processing lecture: subject=${subject}, chapter=${chapter}, contentType=${contentType}, lectureNum=${lectureNum}, messageId=${messageId}`); // Debug log
           if (messageId) {
-            await queryCtx.telegram.forwardMessage(
-              queryCtx.chat?.id!,
-              process.env.GROUP_CHAT_ID || '-1001234567890',
-              parseInt(messageId)
-            );
+            const parsed = parseMessageId(messageId);
+            if (parsed) {
+              const { threadId, messageId: actualMessageId } = parsed;
+              console.log(`Forwarding message: threadId=${threadId}, messageId=${actualMessageId}`); // Debug log
+              try {
+                await queryCtx.telegram.forwardMessage(
+                  queryCtx.chat?.id!,
+                  process.env.GROUP_CHAT_ID || '-1002813390895',
+                  parseInt(actualMessageId),
+                  { message_thread_id: parseInt(threadId) } // Specify thread ID
+                );
+              } catch (forwardError) {
+                console.error('Forward message error:', forwardError);
+                queryCtx.reply('Error: Unable to forward the lecture. Please try again later.');
+                await notifyAdmins(
+                  bot,
+                  queryUserId,
+                  queryUsername,
+                  new Error(`Failed to forward message: ${forwardError.message || JSON.stringify(forwardError)}`),
+                  `lecture forwarding: ${subject}/${chapter}/${contentType}/${lectureNum}`
+                );
+              }
+            } else {
+              queryCtx.reply('Error: Invalid lecture message format.');
+              await notifyAdmins(
+                bot,
+                queryUserId,
+                queryUsername,
+                new Error(`Invalid messageId format: ${messageId} for ${subject}_${chapter}_${contentType}_${lectureNum}`),
+                'lecture retrieval'
+              );
+            }
           } else {
             queryCtx.reply('Lecture not found.');
-            await notifyAdmins(bot, queryUserId, queryUsername, new Error(`Lecture not found: ${subject}_${chapter}_${contentType}_${lectureNum}`), 'lecture retrieval');
+            await notifyAdmins(
+              bot,
+              queryUserId,
+              queryUsername,
+              new Error(`Lecture not found: ${subject}_${chapter}_${contentType}_${lectureNum}`),
+              'lecture retrieval'
+            );
           }
         }
       } catch (error) {

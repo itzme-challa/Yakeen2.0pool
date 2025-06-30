@@ -46,12 +46,14 @@ export async function checkAccess(userId: string): Promise<boolean> {
   return new Date(expiry) > new Date();
 }
 
-export async function saveToken(token: string, userId: string, username: string) {
+export async function saveToken(token: string, userId: string, username: string, shortLink?: string) {
   const db = getDatabase();
   await set(ref(db, `Tokens/${token}`), {
     used: false,
     userid: userId,
-    username
+    username,
+    createdAt: Date.now(), // Store creation timestamp
+    shortLink: shortLink || null // Store shortLink if provided
   });
 }
 
@@ -78,16 +80,16 @@ export async function grantAccess(userId: string, username: string, token: strin
   await set(ref(db, `Tokens/${token}/used`), true);
 }
 
-export async function getUnusedToken(userId: string): Promise<string | null> {
+export async function getUnusedToken(userId: string): Promise<{ token: string; createdAt: number; shortLink?: string } | null> {
   const db = getDatabase();
   const tokensRef = query(ref(db, 'Tokens'), orderByChild('userid'), equalTo(userId));
   const snapshot = await get(tokensRef);
   const tokens = snapshot.val();
   if (!tokens) return null;
 
-  for (const [token, data] of Object.entries(tokens) as [string, { used: boolean; userid: string; username: string }][]) {
+  for (const [token, data] of Object.entries(tokens) as [string, { used: boolean; userid: string; username: string; createdAt: number; shortLink?: string }][]) {
     if (!data.used && data.userid === userId) {
-      return token;
+      return { token, createdAt: data.createdAt, shortLink: data.shortLink };
     }
   }
   return null;

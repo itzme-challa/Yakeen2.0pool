@@ -1,4 +1,5 @@
-import { Context, Markup, Telegraf, CallbackQuery } from 'telegraf';
+import { Context, Markup, Telegraf } from 'telegraf';
+import type { CallbackQuery } from 'telegraf/typings/core/types/typegram';
 import { checkAccess, generateToken, saveToken, getSubjects, getChapters, getContent, checkToken, grantAccess, getUnusedToken } from '../utils/firebase';
 import { paginate } from '../utils/pagination';
 import axios from 'axios';
@@ -94,10 +95,7 @@ export function user(bot: Telegraf<MyContext>) {
   bot.on('callback_query', async (queryCtx: MyContext) => {
     try {
       const callbackQuery = queryCtx.callbackQuery;
-      if (!callbackQuery || !('data' in callbackQuery)) return;
-
-      // Type guard to ensure callbackQuery has 'data' property
-      if (!isCallbackQueryWithData(callbackQuery)) {
+      if (!callbackQuery || !isCallbackQueryWithData(callbackQuery)) {
         await queryCtx.reply('Invalid callback query.');
         return;
       }
@@ -141,7 +139,7 @@ export function user(bot: Telegraf<MyContext>) {
       }
     } catch (error) {
       console.error('Error in callback_query handler:', error);
-      const errorMessage = `Error for user ${queryCtx.from?.id} (@${queryCtx.from?.username || 'unknown'}): Message ID ${(queryCtx.callbackQuery && 'data' in queryCtx.callbackQuery) ? queryCtx.callbackQuery.data : 'unknown'} in group ${TOPIC_GROUP_ID}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      const errorMessage = `Error for user ${queryCtx.from?.id} (@${queryCtx.from?.username || 'unknown'}): Message ID ${isCallbackQueryWithData(queryCtx.callbackQuery) ? queryCtx.callbackQuery.data : 'unknown'} in group ${TOPIC_GROUP_ID}: ${error instanceof Error ? error.message : 'Unknown error'}`;
       for (const adminId of ADMIN_IDS) {
         await bot.telegram.sendMessage(adminId, errorMessage).catch(err => {
           console.error(`Failed to send error to admin ${adminId}:`, err);

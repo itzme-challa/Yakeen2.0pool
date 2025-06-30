@@ -65,7 +65,7 @@ export function admin(bot: Telegraf<MyContext>) {
           
           await saveContent(subject, chapter, contentType, messageIds);
           textCtx.reply('Content saved successfully!');
-          textCtx.session = { ...textCtx.session, state: undefined };
+          textCtx.session = { ...ctx.session, state: undefined };
         } catch (error) {
           textCtx.reply(`Error saving content: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`);
         }
@@ -75,9 +75,23 @@ export function admin(bot: Telegraf<MyContext>) {
 }
 
 async function getChapters(subject: string): Promise<string[]> {
-  if (subject === 'Zoology') {
-    return ['Biomolecules', 'Cell Structure', 'Animal Kingdom', 'Structural Organisation', 
-            'Human Physiology', 'Evolution', 'Genetics'];
+  switch (subject) {
+    case 'Zoology':
+      return ['Biomolecules', 'Cell Structure', 'Animal Kingdom', 'Structural Organisation', 
+              'Human Physiology', 'Evolution', 'Genetics'];
+    case 'Physics':
+      return ['Mathematical Tools', 'Thermodynamics', 'Electromagnetism', 'Optics', 
+              'Modern Physics', 'Waves and Sound', 'Kinematics'];
+    case 'Organic Chemistry':
+      return ['Hydrocarbons', 'Alcohols and Phenols', 'Aldehydes and Ketones', 
+              'Carboxylic Acids', 'Amines', 'Biomolecules', 'Polymers'];
+    case 'Inorganic Chemistry':
+      return ['Periodic Table', 'Chemical Bonding', 'Coordination Compounds', 
+              'Metallurgy', 'P-Block Elements', 'D-Block Elements', 'S-Block Elements'];
+    case 'Physical Chemistry':
+      return ['Atomic Structure', 'Chemical Kinetics', 'Thermodynamics', 
+              'Equilibrium', 'Electrochemistry', 'States of Matter', 'Solutions'];
+    default:
+      return [];
   }
-  return [];
 }

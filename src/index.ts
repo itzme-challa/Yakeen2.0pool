@@ -1,4 +1,4 @@
-import { Telegraf } from 'telegraf';
+import { Telegraf, session } from 'telegraf';
 import { about } from './commands/about';
 import { admin } from './commands/admin';
 import { user } from './commands/user';
@@ -11,13 +11,16 @@ const ENVIRONMENT = process.env.NODE_ENV || '';
 
 const bot = new Telegraf(BOT_TOKEN);
 
+// Initialize session middleware
+bot.use(session());
+
 // Initialize Firebase
 initializeFirebase();
 
 // Commands
 bot.command('about', about());
-bot.command('admin', admin());
-bot.start(user());
+bot.command('admin', admin(bot));
+bot.start(user(bot));
 
 bot.launch();
 

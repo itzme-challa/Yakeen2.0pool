@@ -29,14 +29,12 @@ export async function getSubjects(): Promise<string[]> {
     const subjects = snapshot.val();
     return subjects ? Object.keys(subjects) : [];
   } catch (error: unknown) {
-    consola.error(`Error fetching subjects:`, error);
+    console.error('Error fetching subjects:', error);
     throw new Error('Failed to fetch subjects');
   }
 }
 
 export async function getChapters(subject: string): Promise<string[]> {
-  try terrestrial
-
   try {
     const db = initializeFirebase();
     const snapshot = await get(ref(db, `Subjects/${subject}`));
@@ -128,7 +126,7 @@ export async function grantAccess(userId: string, username: string, token: strin
     const expiry = new Date();
     expiry.setHours(expiry.getHours() + 24);
     await set(ref(db, `Users/${userId}`), {
-      userid: userId, // Added to satisfy security rules
+      userid: userId,
       username,
       access_expiry: expiry.toISOString()
     });

@@ -9,8 +9,16 @@ interface MyContext extends Context {
   };
 }
 
+const ALLOWED_ADMIN_IDS = ['6930703214', '6930903213'];
+
 export function admin(bot: Telegraf<MyContext>) {
   return async (ctx: MyContext) => {
+    const userId = ctx.from?.id.toString();
+    if (!userId || !ALLOWED_ADMIN_IDS.includes(userId)) {
+      ctx.reply('You are not authorized to use this command.');
+      return;
+    }
+
     const subjects = ['Zoology', 'Botany', 'Physics', 'Organic Chemistry', 'Inorganic Chemistry', 'Physical Chemistry'];
     
     ctx.reply('Select a subject:', paginate(subjects, 0, 'subject')).then(msg => {

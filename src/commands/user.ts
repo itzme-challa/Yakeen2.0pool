@@ -1,12 +1,45 @@
 import { Context, Markup, Telegraf } from 'telegraf';
-import { checkAccess, generateToken, saveToken, getSubjects, getChapters, getContent, checkToken, grantAccess } from '../utils/firebase';
+import { checkAccess, saveToken, getSubjects, getChapters, getContent, checkToken, grantAccess } from '../utils/firebase';
 import { paginate } from '../utils/pagination';
 import axios from 'axios';
+import { v4 as uuidv4 } from 'uuid';
 
 interface MyContext extends Context {
   session: {
     state?: string;
   };
+}
+
+// Helper function to generate random ID (6 characters)
+function generateRandomId(length: number = 6): string {
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return result;
+}
+
+// Helper function to format date as DDMMYYYY
+function getFormattedDate(): string {
+  const date = new Date();
+  const day = date.getDate().toString().padStart(2, '0');
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const year = date.getFullYear().toString();
+  return `${day}${month}${year}`;
+}
+
+// Helper function to generate or retrieve token
+async function getOrGenerateToken(userId: string): Promise<string> {
+  const today = getFormattedDate();
+  // Check for existing unused token for today
+  const existingToken = await checkToken(`Token-${userId}-.*-${today}`);
+  if (existingToken && !existingToken.used) {
+    return existingToken.token;
+  }
+  // Generate new token
+  const randomId = generateRandomId(6);
+  return `Token-${userId}-${randomId}-${today}`;
 }
 
 async function notifyAdmins(bot: Telegraf<MyContext>, userId: string, username: string, error: any, context: string) {
@@ -40,7 +73,7 @@ export function user(bot: Telegraf<MyContext>) {
       ctx.reply('Select a subject:', paginate(subjects, 0, 'subject'));
       ctx.session = { ...ctx.session, state: 'subject' };
     } else {
-      const token = await generateToken(userId);
+      const token = await getOrGenerateToken(userId);
       await saveToken(token, userId, username);
 
       const apiKey = process.env.ADRINOLINK_API_KEY || '';
@@ -50,12 +83,11 @@ export function user(bot: Telegraf<MyContext>) {
         return;
       }
 
-      // Generate timestamp for alias (8 chars: YYYYMMDD)
-      const timestamp = new Date().toISOString().replace(/[-:.T]/g, '').slice(0, 8);
-      // Ensure alias is under 30 characters
-      const tokenPart = token.split('-')[2].slice(0, 10); // Limit token part to 10 chars
+      // Generate alias: xxx-zzz-kkk
+      const date = getFormattedDate(); // DDMMYYYY (8 chars)
       const userIdPart = userId.slice(0, 8); // Limit userId to 8 chars
-      const alias = `${userIdPart}-${tokenPart}-${timestamp}`.slice(0, 30);
+      const randomId = generateRandomId(6); // 6-char random ID
+      const alias = `${userIdPart}-${date}-${randomId}`.slice(0, 30); // Ensure under 30 chars
 
       const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
       try {

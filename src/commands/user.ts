@@ -34,7 +34,7 @@ export function user(bot: Telegraf<MyContext>) {
     }
 
     bot.on('text', async (textCtx: MyContext) => {
-      if ('text' in textCtx.message && textCtx.message.text.startsWith('Token-')) {
+      if (textCtx.message && 'text' in textCtx.message && typeof textCtx.message.text === 'string' && textCtx.message.text.startsWith('Token-')) {
         const tokenData = await checkToken(textCtx.message.text);
         if (tokenData && !tokenData.used) {
           await grantAccess(textCtx.from?.id.toString() || '', textCtx.from?.username || '', textCtx.message.text);
@@ -80,7 +80,7 @@ export function user(bot: Telegraf<MyContext>) {
         if (messageId) {
           await queryCtx.telegram.forwardMessage(
             queryCtx.chat?.id!,
-            process.env.GROUP_CHAT_ID || '-1001234567890', // Replace with actual group chat ID
+            process.env.GROUP_CHAT_ID || '-1001234567890',
             parseInt(messageId)
           );
         } else {

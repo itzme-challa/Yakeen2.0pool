@@ -1,6 +1,7 @@
 import { Context, Markup, Telegraf } from 'telegraf';
-import { getSubjects, saveContent } from '../utils/firebase';
+import { getSubjects, saveContent, getChapters } from '../utils/firebase';
 import { paginate } from '../utils/pagination';
+import { getAuth, signInAnonymously } from 'firebase/auth';
 
 interface MyContext extends Context {
   session: {
@@ -16,6 +17,16 @@ export function admin(bot: Telegraf<MyContext>) {
     const userId = ctx.from?.id.toString();
     if (!userId || !ALLOWED_ADMIN_IDS.includes(userId)) {
       ctx.reply('You are not authorized to use this command.');
+      return;
+    }
+
+    // Initialize anonymous authentication
+    try {
+      const auth = getAuth();
+      await signInAnonymously(auth);
+    } catch (error) {
+      console.error('Anonymous auth error:', error);
+      ctx.reply('Authentication failed. Please try again or contact the admin: @itzfew');
       return;
     }
 

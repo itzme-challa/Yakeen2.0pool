@@ -43,7 +43,7 @@ export function admin(bot: Telegraf<MyContext>) {
     });
 
     bot.on('text', async (textCtx: MyContext) => {
-      if (textCtx.session?.state?.startsWith('message_') && 'text' in textCtx.message) {
+      if (textCtx.session?.state?.startsWith('message_') && textCtx.message && 'text' in textCtx.message && typeof textCtx.message.text === 'string') {
         const [_, subject, chapter, contentType] = textCtx.session.state.split('_');
         const messageIds = textCtx.message.text.split(';').reduce((acc: Record<string, string>, pair: string) => {
           const [num, id] = pair.split(',');

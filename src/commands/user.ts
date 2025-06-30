@@ -2,12 +2,19 @@ import { Context, Markup, Telegraf } from 'telegraf';
 import { checkAccess, saveToken, getSubjects, getChapters, getContent, checkToken, grantAccess } from '../utils/firebase';
 import { paginate } from '../utils/pagination';
 import axios from 'axios';
-import { v4 as uuidv4 } from 'uuid';
 
 interface MyContext extends Context {
   session: {
     state?: string;
   };
+}
+
+// Interface for token data returned by checkToken
+interface TokenData {
+  used: boolean;
+  userid: string;
+  username: string;
+  token?: string; // Optional token property
 }
 
 // Helper function to generate random ID (6 characters)
@@ -29,13 +36,30 @@ function getFormattedDate(): string {
   return `${day}${month}${year}`;
 }
 
+// Helper function to check for existing unused token
+async function findExistingToken(userId: string, date: string): Promise<string | null> {
+  // This assumes you have a Firebase query to find tokens by userId and date
+  // Adjust based on your Firebase schema
+  try {
+    // Example: Query Firebase for unused tokens
+    const tokens = await checkToken(`Token-${userId}-.*-${date}`);
+    if (tokens && !tokens.used && tokens.token) {
+      return tokens.token;
+    }
+    return null;
+  } catch (error) {
+    console.error('Error checking existing token:', error);
+    return null;
+  }
+}
+
 // Helper function to generate or retrieve token
 async function getOrGenerateToken(userId: string): Promise<string> {
   const today = getFormattedDate();
   // Check for existing unused token for today
-  const existingToken = await checkToken(`Token-${userId}-.*-${today}`);
-  if (existingToken && !existingToken.used) {
-    return existingToken.token;
+  const existingToken = await findExistingToken(userId, today);
+  if (existingToken) {
+    return existingToken;
   }
   // Generate new token
   const randomId = generateRandomId(6);

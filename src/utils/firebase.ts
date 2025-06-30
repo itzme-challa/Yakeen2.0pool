@@ -61,6 +61,12 @@ export async function checkToken(token: string): Promise<{ used: boolean; userid
   return snapshot.val() || null;
 }
 
+export async function generateToken(userId: string): Promise<string> {
+  const date = new Date().toLocaleDateString('en-GB').replace(/\//g, '');
+  const randomId = Math.random().toString(36).substring(2, 8);
+  return `Token-${userId}-${date}-${randomId}`;
+}
+
 export async function grantAccess(userId: string, username: string, token: string) {
   const db = getDatabase();
   const expiry = new Date();

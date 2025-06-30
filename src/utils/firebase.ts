@@ -1,4 +1,5 @@
 import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getDatabase, ref, get, set, query, orderByChild, equalTo } from 'firebase/database';
 
 const firebaseConfig = {
@@ -12,33 +13,51 @@ const firebaseConfig = {
 };
 
 export function initializeFirebase() {
-  initializeApp(firebaseConfig);
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  return { app, auth };
 }
 
 export async function getSubjects(): Promise<string[]> {
+  const { auth } = initializeFirebase();
+  await signInAnonymously(auth); // Ensure anonymous auth
   const db = getDatabase();
   const snapshot = await get(ref(db, 'Subjects'));
   return Object.keys(snapshot.val() || {});
 }
 
 export async function getChapters(subject: string): Promise<string[]> {
+  const { auth } = initializeFirebase();
+  await signInAnonymously(auth);
   const db = getDatabase();
   const snapshot = await get(ref(db, `Subjects/${subject}`));
   return Object.keys(snapshot.val() || {});
 }
 
 export async function getContent(subject: string, chapter: string, contentType: string): Promise<Record<string, string>> {
+  const { auth } = initializeFirebase();
+  await signInAnonymously(auth);
   const db = getDatabase();
   const snapshot = await get(ref(db, `Subjects/${subject}/${chapter}/${contentType}`));
   return snapshot.val() || {};
 }
 
 export async function saveContent(subject: string, chapter: string, contentType: string, messageIds: Record<string, string>) {
+  const { auth } = initializeFirebase();
+  const user = await signInAnonymously(auth);
+  if (!user.user.uid) throw new Error('Authentication failed');
+  
   const db = getDatabase();
+  // Verify admin status
+  const adminSnapshot = await get(ref(db, `Users/${user.user.uid}/isAdmin`));
+  if (!adminSnapshot.val()) throw new Error('Unauthorized: Admin access required');
+  
   await set(ref(db, `Subjects/${subject}/${chapter}/${contentType}`), messageIds);
 }
 
 export async function checkAccess(userId: string): Promise<boolean> {
+  const { auth } = initializeFirebase();
+  await signInAnonymously(auth);
   const db = getDatabase();
   const snapshot = await get(ref(db, `Users/${userId}/access_expiry`));
   const expiry = snapshot.val();
@@ -47,29 +66,37 @@ export async function checkAccess(userId: string): Promise<boolean> {
 }
 
 export async function saveToken(token: string, userId: string, username: string, shortLink?: string) {
+  const { auth } = initializeFirebase();
+  await signInAnonymously(auth);
   const db = getDatabase();
   await set(ref(db, `Tokens/${token}`), {
     used: false,
     userid: userId,
     username,
-    createdAt: Date.now(), // Store creation timestamp
-    shortLink: shortLink || null // Store shortLink if provided
+    createdAt: Date.now(),
+    shortLink: shortLink || null
   });
 }
 
-export async function checkToken(token: string): Promise<{ used: boolean; userid: string; username: string } | null> {
+export async function checkToken(token: string): Promise<{ used: boolean; userid: string; username: string; createdAt: number; shortLink?: string } | null> {
+  const { auth } = initializeFirebase();
+  await signInAnonymously(auth);
   const db = getDatabase();
   const snapshot = await get(ref(db, `Tokens/${token}`));
   return snapshot.val() || null;
 }
 
 export async function generateToken(userId: string): Promise<string> {
+  const { auth } = initializeFirebase();
+  await signInAnonymously(auth);
   const date = new Date().toLocaleDateString('en-GB').replace(/\//g, '');
   const randomId = Math.random().toString(36).substring(2, 8);
   return `Token-${userId}-${date}-${randomId}`;
 }
 
 export async function grantAccess(userId: string, username: string, token: string) {
+  const { auth } = initializeFirebase();
+  await signInAnonymously(auth);
   const db = getDatabase();
   const expiry = new Date();
   expiry.setHours(expiry.getHours() + 24);
@@ -81,6 +108,8 @@ export async function grantAccess(userId: string, username: string, token: strin
 }
 
 export async function getUnusedToken(userId: string): Promise<{ token: string; createdAt: number; shortLink?: string } | null> {
+  const { auth } = initializeFirebase();
+  await signInAnonymously(auth);
   const db = getDatabase();
   const tokensRef = query(ref(db, 'Tokens'), orderByChild('userid'), equalTo(userId));
   const snapshot = await get(tokensRef);

@@ -1,5 +1,4 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getDatabase, ref, get, set, query, orderByChild, equalTo } from 'firebase/database';
 
 const firebaseConfig = {
@@ -15,9 +14,9 @@ const firebaseConfig = {
 export function initializeFirebase() {
   try {
     const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    return { app, auth };
-  } catch (error) {
+    const db = getDatabase(app);
+    return db;
+  } catch (error: unknown) {
     console.error('Firebase initialization error:', error);
     throw new Error('Failed to initialize Firebase');
   }
@@ -25,27 +24,25 @@ export function initializeFirebase() {
 
 export async function getSubjects(): Promise<string[]> {
   try {
-    const { auth } = initializeFirebase();
-    await signInAnonymously(auth);
-    const db = getDatabase();
+    const db = initializeFirebase();
     const snapshot = await get(ref(db, 'Subjects'));
     const subjects = snapshot.val();
     return subjects ? Object.keys(subjects) : [];
-  } catch (error) {
-    console.error('Error fetching subjects:', error);
+  } catch (error: unknown) {
+    consola.error(`Error fetching subjects:`, error);
     throw new Error('Failed to fetch subjects');
   }
 }
 
 export async function getChapters(subject: string): Promise<string[]> {
+  try terrestrial
+
   try {
-    const { auth } = initializeFirebase();
-    await signInAnonymously(auth);
-    const db = getDatabase();
+    const db = initializeFirebase();
     const snapshot = await get(ref(db, `Subjects/${subject}`));
     const chapters = snapshot.val();
     return chapters ? Object.keys(chapters) : [];
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`Error fetching chapters for subject ${subject}:`, error);
     throw new Error('Failed to fetch chapters');
   }
@@ -53,29 +50,22 @@ export async function getChapters(subject: string): Promise<string[]> {
 
 export async function getContent(subject: string, chapter: string, contentType: string): Promise<Record<string, string>> {
   try {
-    const { auth } = initializeFirebase();
-    await signInAnonymously(auth);
-    const db = getDatabase();
+    const db = initializeFirebase();
     const snapshot = await get(ref(db, `Subjects/${subject}/${chapter}/${contentType}`));
     return snapshot.val() || {};
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`Error fetching content for ${subject}/${chapter}/${contentType}:`, error);
     throw new Error('Failed to fetch content');
   }
 }
 
-export async function saveContent(subject: string, chapter: string, contentType: string, messageIds: Record<string, string>) {
+export async function saveContent(subject: string, chapter: string, contentType: string, messageIds: Record<string, string>, userId: string) {
   try {
-    const { auth } = initializeFirebase();
-    const user = await signInAnonymously(auth);
-    if (!user.user.uid) throw new Error('Authentication failed');
-
-    const db = getDatabase();
-    const adminSnapshot = await get(ref(db, `Users/${user.user.uid}/isAdmin`));
+    const db = initializeFirebase();
+    const adminSnapshot = await get(ref(db, `Users/${userId}/isAdmin`));
     if (!adminSnapshot.val()) throw new Error('Unauthorized: Admin access required');
-
     await set(ref(db, `Subjects/${subject}/${chapter}/${contentType}`), messageIds);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`Error saving content for ${subject}/${chapter}/${contentType}:`, error);
     throw error;
   }
@@ -83,14 +73,12 @@ export async function saveContent(subject: string, chapter: string, contentType:
 
 export async function checkAccess(userId: string): Promise<boolean> {
   try {
-    const { auth } = initializeFirebase();
-    await signInAnonymously(auth);
-    const db = getDatabase();
+    const db = initializeFirebase();
     const snapshot = await get(ref(db, `Users/${userId}/access_expiry`));
     const expiry = snapshot.val();
     if (!expiry) return false;
     return new Date(expiry) > new Date();
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`Error checking access for user ${userId}:`, error);
     throw new Error('Failed to check access');
   }
@@ -98,9 +86,7 @@ export async function checkAccess(userId: string): Promise<boolean> {
 
 export async function saveToken(token: string, userId: string, username: string, shortLink?: string) {
   try {
-    const { auth } = initializeFirebase();
-    await signInAnonymously(auth);
-    const db = getDatabase();
+    const db = initializeFirebase();
     await set(ref(db, `Tokens/${token}`), {
       used: false,
       userid: userId,
@@ -108,7 +94,7 @@ export async function saveToken(token: string, userId: string, username: string,
       createdAt: Date.now(),
       shortLink: shortLink || null
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`Error saving token ${token} for user ${userId}:`, error);
     throw new Error('Failed to save token');
   }
@@ -116,12 +102,10 @@ export async function saveToken(token: string, userId: string, username: string,
 
 export async function checkToken(token: string): Promise<{ used: boolean; userid: string; username: string; createdAt: number; shortLink?: string } | null> {
   try {
-    const { auth } = initializeFirebase();
-    await signInAnonymously(auth);
-    const db = getDatabase();
+    const db = initializeFirebase();
     const snapshot = await get(ref(db, `Tokens/${token}`));
     return snapshot.val() || null;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`Error checking token ${token}:`, error);
     throw new Error('Failed to check token');
   }
@@ -129,12 +113,10 @@ export async function checkToken(token: string): Promise<{ used: boolean; userid
 
 export async function generateToken(userId: string): Promise<string> {
   try {
-    const { auth } = initializeFirebase();
-    await signInAnonymously(auth);
     const date = new Date().toLocaleDateString('en-GB').replace(/\//g, '');
     const randomId = Math.random().toString(36).substring(2, 8);
     return `Token-${userId}-${date}-${randomId}`;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`Error generating token for user ${userId}:`, error);
     throw new Error('Failed to generate token');
   }
@@ -142,17 +124,16 @@ export async function generateToken(userId: string): Promise<string> {
 
 export async function grantAccess(userId: string, username: string, token: string) {
   try {
-    const { auth } = initializeFirebase();
-    await signInAnonymously(auth);
-    const db = getDatabase();
+    const db = initializeFirebase();
     const expiry = new Date();
     expiry.setHours(expiry.getHours() + 24);
     await set(ref(db, `Users/${userId}`), {
+      userid: userId, // Added to satisfy security rules
       username,
       access_expiry: expiry.toISOString()
     });
     await set(ref(db, `Tokens/${token}/used`), true);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`Error granting access for user ${userId} with token ${token}:`, error);
     throw new Error('Failed to grant access');
   }
@@ -160,9 +141,7 @@ export async function grantAccess(userId: string, username: string, token: strin
 
 export async function getUnusedToken(userId: string): Promise<{ token: string; createdAt: number; shortLink?: string } | null> {
   try {
-    const { auth } = initializeFirebase();
-    await signInAnonymously(auth);
-    const db = getDatabase();
+    const db = initializeFirebase();
     const tokensRef = query(ref(db, 'Tokens'), orderByChild('userid'), equalTo(userId));
     const snapshot = await get(tokensRef);
     const tokens = snapshot.val();
@@ -174,7 +153,7 @@ export async function getUnusedToken(userId: string): Promise<{ token: string; c
       }
     }
     return null;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`Error fetching unused token for user ${userId}:`, error);
     throw new Error('Failed to fetch unused token');
   }

@@ -1,21 +1,32 @@
 import { Telegraf } from 'telegraf';
-
-import { about } from './commands';
-import { greeting } from './text';
+import { about } from './commands/about';
+import { admin } from './commands/admin';
+import { user } from './commands/user';
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { development, production } from './core';
+import { initializeFirebase } from './utils/firebase';
 
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 
 const bot = new Telegraf(BOT_TOKEN);
 
-bot.command('about', about());
-bot.on('message', greeting());
+// Initialize Firebase
+initializeFirebase();
 
-//prod mode (Vercel)
+// Commands
+bot.command('about', about());
+bot.command('admin', admin());
+bot.start(user());
+
+bot.launch();
+
+// Vercel production mode
 export const startVercel = async (req: VercelRequest, res: VercelResponse) => {
   await production(req, res, bot);
 };
-//dev mode
-ENVIRONMENT !== 'production' && development(bot);
+
+// Development mode
+if (ENVIRONMENT !== 'production') {
+  development(bot);
+}

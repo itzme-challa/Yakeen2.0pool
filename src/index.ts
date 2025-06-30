@@ -34,10 +34,10 @@ bot.launch();
 
 // Vercel production mode
 export const startVercel = async (req: VercelRequest, res: VercelResponse) => {
-  await production(req, res, bot as Telegraf<Context>);
+  await production(req, res, bot as unknown as Telegraf<Context>);
 };
 
 // Development mode
 if (ENVIRONMENT !== 'production') {
-  development(bot as Telegraf<Context>);
+  development(bot as unknown as Telegraf<Context>);
 }

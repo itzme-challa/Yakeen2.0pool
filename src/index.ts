@@ -1,7 +1,7 @@
 import { Telegraf, session, Context } from 'telegraf';
 import { about } from './commands/about';
 import { admin } from './commands/admin';
-import { user } from './commands/user';
+import { user,registerUserHandlers } from './commands/user';
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { development, production } from './core';
 import { initializeFirebase } from './utils/firebase';
@@ -30,6 +30,7 @@ initializeFirebase();
 bot.command('about', about());
 bot.command('admin', admin(bot));
 bot.start(user(bot));
+registerUserHandlers(bot);
 
 // Launch bot based on environment
 if (ENVIRONMENT === 'production' && WEBHOOK_URL) {

@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, get, set } from 'firebase/database';
+import { getDatabase, ref, get, set, query, orderByChild, equalTo } from 'firebase/database';
 
 const firebaseConfig = {
   apiKey: process.env.FIREBASE_API_KEY,
@@ -76,4 +76,19 @@ export async function grantAccess(userId: string, username: string, token: strin
     access_expiry: expiry.toISOString()
   });
   await set(ref(db, `Tokens/${token}/used`), true);
+}
+
+export async function getUnusedToken(userId: string): Promise<string | null> {
+  const db = getDatabase();
+  const tokensRef = query(ref(db, 'Tokens'), orderByChild('userid'), equalTo(userId));
+  const snapshot = await get(tokensRef);
+  const tokens = snapshot.val();
+  if (!tokens) return null;
+
+  for (const [token, data] of Object.entries(tokens)) {
+    if (!data.used && data.userid === userId) {
+      return token;
+    }
+  }
+  return null;
 }

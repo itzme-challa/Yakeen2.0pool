@@ -41,7 +41,7 @@ export function user(bot: Telegraf<MyContext>) {
     try {
       const auth = getAuth();
       await signInAnonymously(auth);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Anonymous auth error:', error);
       ctx.reply('Authentication failed. Please try again or contact the admin: @itzfew');
       return;
@@ -83,11 +83,11 @@ export function user(bot: Telegraf<MyContext>) {
                 throw new Error('Failed to generate short link');
               }
               await saveToken(token, userId, ctx.from?.username || '', shortLink);
-            } catch (error) {
+            } catch (error: unknown) {
               console.error('Adrinolink API error:', error);
               const errorMessage = `Error generating short link for user ${userId} (@${ctx.from?.username || 'unknown'}): ${error instanceof Error ? error.message : 'Unknown error'}`;
               for (const adminId of ADMIN_IDS) {
-                await bot.telegram.sendMessage(adminId, errorMessage).catch(err => {
+                await bot.telegram.sendMessage(adminId, errorMessage).catch((err: Error) => {
                   console.error(`Failed to send error to admin ${adminId}:`, err);
                 });
               }
@@ -107,15 +107,14 @@ export function user(bot: Telegraf<MyContext>) {
             const response = await axios.get(`https://adrinolinks.in/api?api=${apiKey}&url=${encodeURIComponent(url)}&alias=${alias}`);
             shortLink = response.data.shortenedUrl;
             if (!shortLink || response.data.status !== 'success') {
-             ソーサー
-            throw new Error('Failed to generate short link');
+              throw new Error('Failed to generate short link');
             }
             await saveToken(token, userId, ctx.from?.username || '', shortLink);
-          } catch (error) {
+          } catch (error: unknown) {
             console.error('Adrinolink API error:', error);
             const errorMessage = `Error generating short link for user ${userId} (@${ctx.from?.username || 'unknown'}): ${error instanceof Error ? error.message : 'Unknown error'}`;
             for (const adminId of ADMIN_IDS) {
-              await bot.telegram.sendMessage(adminId, errorMessage).catch(err => {
+              await bot.telegram.sendMessage(adminId, errorMessage).catch((err: Error) => {
                 console.error(`Failed to send error to admin ${adminId}:`, err);
               });
             }
@@ -126,139 +125,141 @@ export function user(bot: Telegraf<MyContext>) {
 
         ctx.reply(`Click the link below to get 24-hour access:\n${shortLink}`);
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error in user command:', error);
       const errorMessage = `Error processing user command for ${userId} (@${ctx.from?.username || 'unknown'}): ${error instanceof Error ? error.message : 'Unknown error'}`;
       for (const adminId of ADMIN_IDS) {
-        await bot.telegram.sendMessage(adminId, errorMessage).catch(err => {
+        await bot.telegram.sendMessage(adminId, errorMessage).catch((err: Error) => {
           console.error(`Failed to send error to admin ${adminId}:`, err);
         });
       }
       ctx.reply('An error occurred. Please contact the admin: @itzfew');
     }
-  };
-}
 
-bot.on('text', async (textCtx: MyContext) => {
-  if (!textCtx.message || !('text' in textCtx.message) || typeof textCtx.message.text !== 'string') return;
+    // Register text handler
+    bot.on('text', async (textCtx: MyContext) => {
+      if (!textCtx.message || !('text' in textCtx.message) || typeof textCtx.message.text !== 'string') return;
 
-  const userId = textCtx.from?.id.toString();
-  if (!userId) {
-    textCtx.reply('Error: Unable to identify user. Please try again.');
-    return;
-  }
+      const textUserId = textCtx.from?.id.toString();
+      if (!textUserId) {
+        textCtx.reply('Error: Unable to identify user. Please try again.');
+        return;
+      }
 
-  try {
-    if (textCtx.message.text.startsWith('Token-')) {
-      const tokenData = await checkToken(textCtx.message.text);
-      if (tokenData && !tokenData.used && tokenData.userid === userId) {
-        await grantAccess(userId, textCtx.from?.username || '', textCtx.message.text);
-        textCtx.reply('Access granted for 24 hours!');
-        const subjects = await getSubjects();
-        if (subjects.length === 0) {
-          textCtx.reply('No subjects available at the moment. Please try again later.');
+      try {
+        if (textCtx.message.text.startsWith('Token-')) {
+          const tokenData = await checkToken(textCtx.message.text);
+          if (tokenData && !tokenData.used && tokenData.userid === textUserId) {
+            await grantAccess(textUserId, textCtx.from?.username || '', textCtx.message.text);
+            textCtx.reply('Access granted for 24 hours!');
+            const subjects = await getSubjects();
+            if (subjects.length === 0) {
+              textCtx.reply('No subjects available at the moment. Please try again later.');
+              return;
+            }
+            textCtx.reply('Select a subject:', paginate(subjects, 0, 'subject'));
+            textCtx.session = { ...textCtx.session, state: 'subject' };
+          } else {
+            textCtx.reply('Invalid, used, or unauthorized token.');
+          }
+        }
+      } catch (error: unknown) {
+        console.error('Error processing token:', error);
+        const errorMessage = `Error processing token for user ${textUserId} (@${textCtx.from?.username || 'unknown'}): ${error instanceof Error ? error.message : 'Unknown error'}`;
+        for (const adminId of ADMIN_IDS) {
+          await bot.telegram.sendMessage(adminId, errorMessage).catch((err: Error) => {
+            console.error(`Failed to send error to admin ${adminId}:`, err);
+          });
+        }
+        textCtx.reply('An error occurred while processing the token. Please contact the admin: @itzfew');
+      }
+    });
+
+    // Register callback query handler
+    bot.on('callback_query', async (queryCtx: MyContext) => {
+      const callbackQuery = queryCtx.callbackQuery;
+      if (!callbackQuery || !('data' in callbackQuery)) return;
+
+      const queryUserId = queryCtx.from?.id.toString();
+      if (!queryUserId) {
+        queryCtx.reply('Error: Unable to identify user. Please try again.');
+        return;
+      }
+
+      try {
+        const hasAccess = await checkAccess(queryUserId);
+        if (!hasAccess) {
+          queryCtx.reply('Your access has expired. Please generate a new token using /start.');
+          queryCtx.session = { ...queryCtx.session, state: undefined };
           return;
         }
-        textCtx.reply('Select a subject:', paginate(subjects, 0, 'subject'));
-        textCtx.session = { ...textCtx.session, state: 'subject' };
-      } else {
-        textCtx.reply('Invalid, used, or unauthorized token.');
-      }
-    }
-  } catch (error) {
-    console.error('Error processing token:', error);
-    const errorMessage = `Error processing token for user ${userId} (@${textCtx.from?.username || 'unknown'}): ${error instanceof Error ? error.message : 'Unknown error'}`;
-    for (const adminId of ADMIN_IDS) {
-      await bot.telegram.sendMessage(adminId, errorMessage).catch(err => {
-        console.error(`Failed to send error to admin ${adminId}:`, err);
-      });
-    }
-    textCtx.reply('An error occurred while processing the token. Please contact the admin: @itzfew');
-  }
-});
 
-bot.on('callback_query', async (queryCtx: MyContext) => {
-  const callbackQuery = queryCtx.callbackQuery;
-  if (!callbackQuery || !('data' in callbackQuery)) return;
-
-  const userId = queryCtx.from?.id.toString();
-  if (!userId) {
-    queryCtx.reply('Error: Unable to identify user. Please try again.');
-    return;
-  }
-
-  try {
-    const hasAccess = await checkAccess(userId);
-    if (!hasAccess) {
-      queryCtx.reply('Your access has expired. Please generate a new token using /start.');
-      queryCtx.session = { ...queryCtx.session, state: undefined };
-      return;
-    }
-
-    const data = callbackQuery.data;
-    if (data.startsWith('subject_')) {
-      const subject = data.split('_')[1];
-      const chapters = await getChapters(subject);
-      if (chapters.length === 0) {
-        queryCtx.reply('No chapters available for this subject.');
-        return;
-      }
-      queryCtx.reply('Select a chapter:', paginate(chapters, 0, `chapter_${subject}`));
-      queryCtx.session = { ...queryCtx.session, state: `chapter_${subject}` };
-    } else if (data.startsWith('chapter_')) {
-      const [_, subject, chapter] = data.split('_');
-      queryCtx.reply('Select content type:', Markup.inlineKeyboard([
-        [Markup.button.callback('DPP', `content_${subject}_${chapter}_DPP`)],
-        [Markup.button.callback('Notes', `content_${subject}_${chapter}_Notes`)],
-        [Markup.button.callback('Lectures', `content_${subject}_${chapter}_Lectures`)]
-      ]));
-      queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}` };
-    } else if (data.startsWith('content_')) {
-      const [_, subject, chapter, contentType] = data.split('_');
-      const content = await getContent(subject, chapter, contentType);
-      if (Object.keys(content).length === 0) {
-        queryCtx.reply(`No ${contentType} available for this chapter.`);
-        return;
-      }
-      const buttons = Object.keys(content).map(num => 
-        [Markup.button.callback(`Lecture ${num}`, `lecture_${subject}_${chapter}_${contentType}_${num}`)]
-      );
-      queryCtx.reply('Available lectures:', Markup.inlineKeyboard(buttons));
-    } else if (data.startsWith('lecture_')) {
-      const [_, subject, chapter, contentType, lectureNum] = data.split('_');
-      const content = await getContent(subject, chapter, contentType);
-      const messageId = content[lectureNum];
-      if (messageId) {
-        const [topicId, msgId] = messageId.split('/');
-        try {
-          await queryCtx.telegram.forwardMessage(
-            queryCtx.chat?.id!,
-            TOPIC_GROUP_ID,
-            parseInt(msgId),
-            { message_thread_id: parseInt(topicId) }
-          );
-        } catch (error) {
-          console.error('Message forwarding error:', error);
-          const errorMessage = `Error forwarding message for user ${userId} (@${queryCtx.from?.username || 'unknown'}): Message ID ${messageId} in group ${TOPIC_GROUP_ID}`;
-          for (const adminId of ADMIN_IDS) {
-            await bot.telegram.sendMessage(adminId, errorMessage).catch(err => {
-              console.error(`Failed to send error to admin ${adminId}:`, err);
-            });
+        const data = callbackQuery.data;
+        if (data.startsWith('subject_')) {
+          const subject = data.split('_')[1];
+          const chapters = await getChapters(subject);
+          if (chapters.length === 0) {
+            queryCtx.reply('No chapters available for this subject.');
+            return;
           }
-          queryCtx.reply('Failed to forward lecture. Please contact the admin: @itzfew');
+          queryCtx.reply('Select a chapter:', paginate(chapters, 0, `chapter_${subject}`));
+          queryCtx.session = { ...queryCtx.session, state: `chapter_${subject}` };
+        } else if (data.startsWith('chapter_')) {
+          const [_, subject, chapter] = data.split('_');
+          queryCtx.reply('Select content type:', Markup.inlineKeyboard([
+            [Markup.button.callback('DPP', `content_${subject}_${chapter}_DPP`)],
+            [Markup.button.callback('Notes', `content_${subject}_${chapter}_Notes`)],
+            [Markup.button.callback('Lectures', `content_${subject}_${chapter}_Lectures`)]
+          ]));
+          queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}` };
+        } else if (data.startsWith('content_')) {
+          const [_, subject, chapter, contentType] = data.split('_');
+          const content = await getContent(subject, chapter, contentType);
+          if (Object.keys(content).length === 0) {
+            queryCtx.reply(`No ${contentType} available for this chapter.`);
+            return;
+          }
+          const buttons = Object.keys(content).map(num => 
+            [Markup.button.callback(`Lecture ${num}`, `lecture_${subject}_${chapter}_${contentType}_${num}`)]
+          );
+          queryCtx.reply('Available lectures:', Markup.inlineKeyboard(buttons));
+        } else if (data.startsWith('lecture_')) {
+          const [_, subject, chapter, contentType, lectureNum] = data.split('_');
+          const content = await getContent(subject, chapter, contentType);
+          const messageId = content[lectureNum];
+          if (messageId) {
+            const [topicId, msgId] = messageId.split('/');
+            try {
+              await queryCtx.telegram.forwardMessage(
+                queryCtx.chat?.id!,
+                TOPIC_GROUP_ID,
+                parseInt(msgId),
+                { message_thread_id: parseInt(topicId) }
+              );
+            } catch (error: unknown) {
+              console.error('Message forwarding error:', error);
+              const errorMessage = `Error forwarding message for user ${queryUserId} (@${queryCtx.from?.username || 'unknown'}): Message ID ${messageId} in group ${TOPIC_GROUP_ID}`;
+              for (const adminId of ADMIN_IDS) {
+                await bot.telegram.sendMessage(adminId, errorMessage).catch((err: Error) => {
+                  console.error(`Failed to send error to admin ${adminId}:`, err);
+                });
+              }
+              queryCtx.reply('Failed to forward lecture. Please contact the admin: @itzfew');
+            }
+          } else {
+            queryCtx.reply('Lecture not found.');
+          }
         }
-      } else {
-        queryCtx.reply('Lecture not found.');
+      } catch (error: unknown) {
+        console.error('Error in callback query:', error);
+        const errorMessage = `Error processing callback query for user ${queryUserId} (@${queryCtx.from?.username || 'unknown'}): ${error instanceof Error ? error.message : 'Unknown error'}`;
+        for (const adminId of ADMIN_IDS) {
+          await bot.telegram.sendMessage(adminId, errorMessage).catch((err: Error) => {
+            console.error(`Failed to send error to admin ${adminId}:`, err);
+          });
+        }
+        queryCtx.reply('An error occurred. Please contact the admin: @itzfew');
       }
-    }
-  } catch (error) {
-    console.error('Error in callback query:', error);
-    const errorMessage = `Error processing callback query for user ${userId} (@${queryCtx.from?.username || 'unknown'}): ${error instanceof Error ? error.message : 'Unknown error'}`;
-    for (const adminId of ADMIN_IDS) {
-      await bot.telegram.sendMessage(adminId, errorMessage).catch(err => {
-        console.error(`Failed to send error to admin ${adminId}:`, err);
-      });
-    }
-    queryCtx.reply('An error occurred. Please contact the admin: @itzfew');
-  }
-});
+    });
+  };
+}

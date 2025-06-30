@@ -89,7 +89,7 @@ async function getChapters(subject: string): Promise<string[]> {
       return ['Periodic Table', 'Chemical Bonding', 'Coordination Compounds', 
               'Metallurgy', 'P-Block Elements', 'D-Block Elements', 'S-Block Elements'];
     case 'Physical Chemistry':
-      return ['Atomic Structure', 'Chemical Kinetics', 'Thermodynamics', 
+      return ['Some Basic concepts', 'Atomic Structure', 'Chemical Kinetics', 'Thermodynamics', 
               'Equilibrium', 'Electrochemistry', 'States of Matter', 'Solutions'];
     default:
       return [];

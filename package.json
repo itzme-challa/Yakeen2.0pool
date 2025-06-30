@@ -7,7 +7,9 @@
   "homepage": "https://github.com/sollidy/telegram-bot-vercel-boilerplate",
   "dependencies": {
     "@vercel/node": "^5.1.16",
+    "axios": "^1.7.2",
     "dotenv-cli": "^8.0.0",
+    "firebase": "^10.12.2",
     "telegraf": "^4.16.3"
   },
   "devDependencies": {
@@ -18,13 +20,22 @@
     "nodemon": "^3.1.7",
     "prettier": "^3.3.3",
     "ts-node": "^10.9.2",
-    "typescript": "^5.6.3"
-  },
-  "scripts": {
-    "dev": "DEBUG=bot* dotenv -- nodemon -e ts -x ts-node src/index.ts",
-    "devWindows": "@powershell -Command $env:DEBUG='bot*';dotenv -- -- nodemon -e ts -x ts-node src/index.ts",
-    "build": "ncc build src/index.ts -o public -m",
-    "prettier": "prettier --write 'src/**/*.ts'",
-    "lint": "tsc --noemit"
+    "typescript": "^ core/index.ts
+import { VercelRequest, VercelResponse } from '@vercel/node';
+import { Telegraf } from 'telegraf';
+
+export const development = async (bot: Telegraf) => {
+  console.log('Starting bot in development mode...');
+  await bot.launch();
+  console.log('Bot started!');
+};
+
+export const production = async (req: VercelRequest, res: VercelResponse, bot: Telegraf) => {
+  try {
+    await bot.handleUpdate(req.body);
+    res.status(200).send('OK');
+  } catch (error) {
+    console.error('Error in production handler:', error);
+    res.status(500).send('Error');
   }
-}
+};

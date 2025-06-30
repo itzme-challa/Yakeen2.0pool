@@ -34,7 +34,7 @@ function parseMessageId(messageId: string): { threadId: string; messageId: strin
   if (!match) return null;
   return {
     threadId: match[1],
-    messageId: match[2]
+    messageId: match[2],
   };
 }
 
@@ -51,13 +51,16 @@ async function getOrGenerateToken(userId: string): Promise<string> {
   return `Token-${userId}-${randomId}-${today}`;
 }
 
-async function notifyAdmins(bot: Telegraf<MyContext>, userId: string, username: string, error: any, context: string) {
+// Helper function to notify admins
+async function notifyAdmins(bot: Telegraf<MyContext>, userId: string, username: string, error: unknown, context: string) {
   const adminChatId = process.env.ADMIN_CHAT_ID || '';
   if (!adminChatId) {
     console.error('Admin chat ID not configured.');
     return;
   }
-  const errorMessage = `Error in ${context}:\nUser ID: ${userId}\nUsername: ${username || 'Unknown'}\nError: ${error.message || JSON.stringify(error)}`;
+  const errorMessage = `Error in ${context}:\nUser ID: ${userId}\nUsername: ${username || 'Unknown'}\nError: ${
+    error instanceof Error ? error.message : JSON.stringify(error)
+  }`;
   try {
     await bot.telegram.sendMessage(adminChatId, errorMessage);
   } catch (notifyError) {
@@ -76,7 +79,7 @@ export function user(bot: Telegraf<MyContext>) {
     }
 
     const hasAccess = await checkAccess(userId);
-    
+
     if (hasAccess) {
       const subjects = await getSubjects();
       ctx.reply('Select a subject:', paginate(subjects, 0, 'subject'));
@@ -115,116 +118,123 @@ export function user(bot: Telegraf<MyContext>) {
         await notifyAdmins(bot, userId, username, error, 'link shortening');
       }
     }
+  };
+}
 
-    bot.on('text', async (textCtx: MyContext) => {
-      const textUserId = textCtx.from?.id.toString() || 'Unknown';
-      const textUsername = textCtx.from?.username || 'Unknown';
-      if (textCtx.message && 'text' in textCtx.message && typeof textCtx.message.text === 'string' && textCtx.message.text.startsWith('Token-')) {
-        try {
-          const tokenData = await checkToken(textCtx.message.text);
-          if (tokenData && !tokenData.used) {
-            await grantAccess(textUserId, textUsername, textCtx.message.text);
-            textCtx.reply('Access granted for 24 hours!');
-            const subjects = await getSubjects();
-            textCtx.reply('Select a subject:', paginate(subjects, 0, 'subject'));
-            textCtx.session = { ...textCtx.session, state: 'subject' };
-          } else {
-            textCtx.reply('Invalid or already used token.');
-          }
-        } catch (error) {
-          console.error('Error processing token:', error);
-          textCtx.reply('Error: Failed to process token. Please try again.');
-          await notifyAdmins(bot, textUserId, textUsername, error, 'token processing');
-        }
-      }
-    });
-
-    bot.on('callback_query', async (queryCtx: MyContext) => {
-      const queryUserId = queryCtx.from?.id.toString() || 'Unknown';
-      const queryUsername = queryCtx.from?.username || 'Unknown';
-      const callbackQuery = queryCtx.callbackQuery;
-      if (!callbackQuery || !('data' in callbackQuery)) {
-        await notifyAdmins(bot, queryUserId, queryUsername, new Error('Invalid callback query'), 'callback handler');
-        return;
-      }
-
-      const data = callbackQuery.data;
+// Register text and callback query handlers outside the command
+export function registerUserHandlers(bot: Telegraf<MyContext>) {
+  bot.on('text', async (textCtx: MyContext) => {
+    const textUserId = textCtx.from?.id.toString() || 'Unknown';
+    const textUsername = textCtx.from?.username || 'Unknown';
+    if (textCtx.message && 'text' in textCtx.message && typeof textCtx.message.text === 'string' && textCtx.message.text.startsWith('Token-')) {
       try {
-        if (data.startsWith('subject_')) {
-          const subject = data.split('_')[1];
-          const chapters = await getChapters(subject);
-          queryCtx.reply('Select a chapter:', paginate(chapters, 0, `chapter_${subject}`));
-          queryCtx.session = { ...queryCtx.session, state: `chapter_${subject}` };
-        } else if (data.startsWith('chapter_')) {
-          const [_, subject, chapter] = data.split('_');
-          queryCtx.reply('Select content type:', Markup.inlineKeyboard([
-            [Markup.button.callback('DPP', `content_${subject}_${chapter}_DPP`)],
-            [Markup.button.callback('Notes', `content_${subject}_${chapter}_Notes`)],
-            [Markup.button.callback('Lectures', `content_${subject}_${chapter}_Lectures`)]
-          ]));
-          queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}` };
-        } else if (data.startsWith('content_')) {
-          const [_, subject, chapter, contentType] = data.split('_');
-          const content = await getContent(subject, chapter, contentType);
-          console.log(`Content for ${subject}/${chapter}/${contentType}:`, content); // Debug log
-          const buttons = Object.keys(content).map(num => 
-            [Markup.button.callback(`Lecture ${num}`, `lecture_${subject}_${chapter}_${contentType}_${num}`)]
-          );
-          queryCtx.reply('Available lectures:', Markup.inlineKeyboard(buttons));
-        } else if (data.startsWith('lecture_')) {
-          const [_, subject, chapter, contentType, lectureNum] = data.split('_');
-          const content = await getContent(subject, chapter, contentType);
-          const messageId = content[lectureNum];
-          console.log(`Processing lecture: subject=${subject}, chapter=${chapter}, contentType=${contentType}, lectureNum=${lectureNum}, messageId=${messageId}`); // Debug log
-          if (messageId) {
-            const parsed = parseMessageId(messageId);
-            if (parsed) {
-              const { threadId, messageId: actualMessageId } = parsed;
-              console.log(`Forwarding message: threadId=${threadId}, messageId=${actualMessageId}, groupChatId=${process.env.GROUP_CHAT_ID || '-1002813390895'}`); // Debug log
-              try {
-                await queryCtx.telegram.forwardMessage(
-                  queryCtx.chat?.id!,
-                  process.env.GROUP_CHAT_ID || '-1002813390895',
-                  parseInt(actualMessageId),
-                  { message_thread_id: parseInt(threadId) } // Specify thread ID
-                );
-              } catch (forwardError) {
-                console.error('Forward message error:', forwardError);
-                queryCtx.reply('Error: Unable to forward the lecture. Please try again later.');
-                await notifyAdmins(
-                  bot,
-                  queryUserId,
-                  queryUsername,
-                  new Error(`Failed to forward message: ${forwardError.message || JSON.stringify(forwardError)}`),
-                  `lecture forwarding: ${subject}/${chapter}/${contentType}/${lectureNum}`
-                );
-              }
-            } else {
-              queryCtx.reply('Error: Invalid lecture message format.');
+        const tokenData = await checkToken(textCtx.message.text);
+        if (tokenData && !tokenData.used) {
+          await grantAccess(textUserId, textUsername, textCtx.message.text);
+          textCtx.reply('Access granted for 24 hours!');
+          const subjects = await getSubjects();
+          textCtx.reply('Select a subject:', paginate(subjects, 0, 'subject'));
+          textCtx.session = { ...textCtx.session, state: 'subject' };
+        } else {
+          textCtx.reply('Invalid or already used token.');
+        }
+      } catch (error) {
+        console.error('Error processing token:', error);
+        textCtx.reply('Error: Failed to process token. Please try again.');
+        await notifyAdmins(bot, textUserId, textUsername, error, 'token processing');
+      }
+    }
+  });
+
+  bot.on('callback_query', async (queryCtx: MyContext) => {
+    const queryUserId = queryCtx.from?.id.toString() || 'Unknown';
+    const queryUsername = queryCtx.from?.username || 'Unknown';
+    const callbackQuery = queryCtx.callbackQuery;
+    if (!callbackQuery || !('data' in callbackQuery)) {
+      await notifyAdmins(bot, queryUserId, queryUsername, new Error('Invalid callback query'), 'callback handler');
+      return;
+    }
+
+    const data = callbackQuery.data;
+    try {
+      if (data.startsWith('subject_')) {
+        const subject = data.split('_')[1];
+        const chapters = await getChapters(subject);
+        queryCtx.reply('Select a chapter:', paginate(chapters, 0, `chapter_${subject}`));
+        queryCtx.session = { ...queryCtx.session, state: `chapter_${subject}` };
+      } else if (data.startsWith('chapter_')) {
+        const [_, subject, chapter] = data.split('_');
+        queryCtx.reply('Select content type:', Markup.inlineKeyboard([
+          [Markup.button.callback('DPP', `content_${subject}_${chapter}_DPP`)],
+          [Markup.button.callback('Notes', `content_${subject}_${chapter}_Notes`)],
+          [Markup.button.callback('Lectures', `content_${subject}_${chapter}_Lectures`)],
+        ]));
+        queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}` };
+      } else if (data.startsWith('content_')) {
+        const [_, subject, chapter, contentType] = data.split('_');
+        const content = await getContent(subject, chapter, contentType);
+        console.log(`Content for ${subject}/${chapter}/${contentType}:`, content); // Debug log
+        const buttons = Object.keys(content).map((num) => [
+          Markup.button.callback(`Lecture ${num}`, `lecture_${subject}_${chapter}_${contentType}_${num}`),
+        ]);
+        queryCtx.reply('Available lectures:', Markup.inlineKeyboard(buttons));
+      } else if (data.startsWith('lecture_')) {
+        const [_, subject, chapter, contentType, lectureNum] = data.split('_');
+        const content = await getContent(subject, chapter, contentType);
+        const messageId = content[lectureNum];
+        console.log(`Processing lecture: subject=${subject}, chapter=${chapter}, contentType=${contentType}, lectureNum=${lectureNum}, messageId=${messageId}`); // Debug log
+        if (messageId) {
+          const parsed = parseMessageId(messageId);
+          if (parsed) {
+            const { threadId, messageId: actualMessageId } = parsed;
+            console.log(`Forwarding message: threadId=${threadId}, messageId=${actualMessageId}, groupChatId=${process.env.GROUP_CHAT_ID || '-1002813390895'}`); // Debug log
+            try {
+              await queryCtx.telegram.forwardMessage(
+                queryCtx.chat?.id!,
+                process.env.GROUP_CHAT_ID || '-1002813390895',
+                parseInt(actualMessageId),
+                { message_thread_id: parseInt(threadId) } // Specify thread ID
+              );
+            } catch (forwardError: unknown) {
+              const error = forwardError instanceof Error ? forwardError : new Error('Unknown error during message forwarding');
+              console.error('Forward message error:', error);
+              queryCtx.reply('Error: Unable to forward the lecture. Please try again later.');
               await notifyAdmins(
                 bot,
                 queryUserId,
                 queryUsername,
-                new Error(`Invalid messageId format: ${messageId} for ${subject}_${chapter}_${contentType}_${lectureNum}`),
-                'lecture retrieval'
+                error,
+                `lecture forwarding: ${subject}/${chapter}/${contentType}/${lectureNum}`
               );
             }
           } else {
-            queryCtx.reply('Lecture not found.');
+            queryCtx.reply('Error: Invalid lecture message format.');
             await notifyAdmins(
               bot,
               queryUserId,
               queryUsername,
-              new Error(`Lecture not found: ${subject}_${chapter}_${contentType}_${lectureNum}`),
+              new Error(`Invalid messageId format: ${messageId} for ${subject}_${chapter}_${contentType}_${lectureNum}`),
               'lecture retrieval'
             );
           }
+        } else {
+          queryCtx.reply('Lecture not found.');
+          await notifyAdmins(
+            bot,
+            queryUserId,
+            queryUsername,
+            new Error(`Lecture not found: ${subject}_${chapter}_${contentType}_${lectureNum}`),
+            'lecture retrieval'
+          );
         }
-      } catch (error) {
-        console.error('Error in callback handler:', error);
-        queryCtx.reply('Error: Something went wrong. Please try again.');
-        await notifyAdmins(bot, queryUserId, queryUsername, error, 'callback handler');
       }
-    });
-  };
+    } catch (error: unknown) {
+      console.error('Error in callback handler:', error);
+      queryCtx.reply('Error: Something went wrong. Please try again.');
+      await notifyAdmins(bot, queryUserId, queryUsername, error, 'callback handler');
+    } finally {
+      // Answer the callback query to remove the loading state
+      await queryCtx.answerCbQuery();
+    }
+  });
 }

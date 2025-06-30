@@ -16,6 +16,7 @@ interface MyContext extends Context {
 
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
+const WEBHOOK_URL = process.env.WEBHOOK_URL || '';
 
 const bot = new Telegraf<MyContext>(BOT_TOKEN);
 
@@ -30,14 +31,25 @@ bot.command('about', about());
 bot.command('admin', admin(bot));
 bot.start(user(bot));
 
-bot.launch();
+// Launch bot based on environment
+if (ENVIRONMENT === 'production' && WEBHOOK_URL) {
+  // Set webhook for production
+  bot.telegram.setWebhook(`${WEBHOOK_URL}/api`).then(() => {
+    console.log(`Webhook set to ${WEBHOOK_URL}/api`);
+  }).catch(err => {
+    console.error('Failed to set webhook:', err);
+  });
+} else {
+  // Delete webhook and use polling for development
+  bot.telegram.deleteWebhook().then(() => {
+    console.log('Webhook deleted, starting polling...');
+    bot.launch();
+  }).catch(err => {
+    console.error('Failed to delete webhook:', err);
+  });
+}
 
 // Vercel production mode
 export const startVercel = async (req: VercelRequest, res: VercelResponse) => {
   await production(req, res, bot as unknown as Telegraf<Context>);
 };
-
-// Development mode
-if (ENVIRONMENT !== 'production') {
-  development(bot as unknown as Telegraf<Context>);
-}

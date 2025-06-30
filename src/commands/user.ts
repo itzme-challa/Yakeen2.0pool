@@ -37,7 +37,11 @@ export function user(bot: Telegraf<MyContext>) {
 
       const apiKey = process.env.ADRINOLINK_API_KEY || '';
       const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
-      const alias = `${userId}-${token.split('-')[2]}-TIME`;
+      // Generate timestamp for alias
+      const now = new Date();
+      const timestamp = now.toISOString().replace(/[-:T.]/g, '').slice(0, 14); // e.g., 20250630-230545
+      const alias = `${userId}-${token.split('-')[2]}-${timestamp}`;
+      
       try {
         const response = await axios.get(`https://adrinolinks.in/api?api=${apiKey}&url=${encodeURIComponent(url)}&alias=${alias}`);
         const shortLink = response.data.shortenedUrl;

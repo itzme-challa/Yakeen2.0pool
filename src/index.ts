@@ -51,5 +51,17 @@ if (ENVIRONMENT === 'production' && WEBHOOK_URL) {
 
 // Vercel production mode
 export const startVercel = async (req: VercelRequest, res: VercelResponse) => {
-  await production(req, res, bot as unknown as Telegraf<Context>);
+  try {
+    // Ensure only one response is sent
+    if (res.headersSent) {
+      console.warn('Headers already sent, skipping response');
+      return;
+    }
+    await production(req, res, bot as unknown as Telegraf<Context>);
+  } catch (error) {
+    console.error('Error in startVercel:', error);
+    if (!res.headersSent) {
+      res.status(500).send('Internal Server Error');
+    }
+  }
 };

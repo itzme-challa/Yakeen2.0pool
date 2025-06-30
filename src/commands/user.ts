@@ -27,10 +27,17 @@ export function user(bot: Telegraf<MyContext>) {
       const apiKey = process.env.ADRINOLINK_API_KEY || '';
       const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
       const alias = `${userId}-${token.split('-')[2]}-TIME`;
-      const response = await axios.get(`https://adrinolinks.in/api?api=${apiKey}&url=${encodeURIComponent(url)}&alias=${alias}`);
-      const shortLink = response.data.shorturl;
-
-      ctx.reply(`Click the link below to get 24-hour access:\n${shortLink}`);
+      try {
+        const response = await axios.get(`https://adrinolinks.in/api?api=${apiKey}&url=${encodeURIComponent(url)}&alias=${alias}`);
+        const shortLink = response.data.shortenedUrl;
+        if (!shortLink || response.data.status !== 'success') {
+          throw new Error('Failed to generate short link');
+        }
+        ctx.reply(`Click the link below to get 24-hour access:\n${shortLink}`);
+      } catch (error) {
+        console.error('Adrinolink API error:', error);
+        ctx.reply('Failed to generate access link. Please try again later.');
+      }
     }
 
     bot.on('text', async (textCtx: MyContext) => {

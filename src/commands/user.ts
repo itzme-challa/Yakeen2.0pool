@@ -21,15 +21,12 @@ export function user(bot: Telegraf<MyContext>) {
       ctx.reply('Select a subject:', paginate(subjects, 0, 'subject'));
       ctx.session = { ...ctx.session, state: 'subject' };
     } else {
-      const date = new Date().toLocaleDateString('en-GB').replace(/\//g, '');
-      const randomId = Math.random().toString(36).substring(2, 8);
-      const token = `Token-${userId}-${date}-${randomId}`;
-
+      const token = await generateToken(userId);
       await saveToken(token, userId, ctx.from?.username || '');
 
       const apiKey = process.env.ADRINOLINK_API_KEY || '';
       const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
-      const alias = `${userId}-${date}-TIME`;
+      const alias = `${userId}-${token.split('-')[2]}-TIME`;
       const response = await axios.get(`https://adrinolinks.in/api?api=${apiKey}&url=${encodeURIComponent(url)}&alias=${alias}`);
       const shortLink = response.data.shorturl;
 
@@ -37,11 +34,10 @@ export function user(bot: Telegraf<MyContext>) {
     }
 
     bot.on('text', async (textCtx: MyContext) => {
-      const text = textCtx.message?.text;
-      if (text?.startsWith('Token-')) {
-        const tokenData = await checkToken(text);
+      if ('text' in textCtx.message && textCtx.message.text.startsWith('Token-')) {
+        const tokenData = await checkToken(textCtx.message.text);
         if (tokenData && !tokenData.used) {
-          await grantAccess(textCtx.from?.id.toString() || '', textCtx.from?.username || '', text);
+          await grantAccess(textCtx.from?.id.toString() || '', textCtx.from?.username || '', textCtx.message.text);
           textCtx.reply('Access granted for 24 hours!');
           const subjects = await getSubjects();
           textCtx.reply('Select a subject:', paginate(subjects, 0, 'subject'));
@@ -53,9 +49,10 @@ export function user(bot: Telegraf<MyContext>) {
     });
 
     bot.on('callback_query', async (queryCtx: MyContext) => {
-      const data = queryCtx.callbackQuery?.data;
-      if (!data) return;
+      const callbackQuery = queryCtx.callbackQuery;
+      if (!callbackQuery || !('data' in callbackQuery)) return;
 
+      const data = callbackQuery.data;
       if (data.startsWith('subject_')) {
         const subject = data.split('_')[1];
         const chapters = await getChapters(subject);
@@ -78,12 +75,17 @@ export function user(bot: Telegraf<MyContext>) {
         queryCtx.reply('Available lectures:', Markup.inlineKeyboard(buttons));
       } else if (data.startsWith('lecture_')) {
         const [_, subject, chapter, contentType, lectureNum] = data.split('_');
-        const messageId = (await getContent(subject, chapter, contentType))[lectureNum];
-        queryCtx.telegram.forwardMessage(
-          queryCtx.chat?.id!,
-          '-1001234567890', // Replace with actual group chat ID
-          parseInt(messageId)
-        );
+        const content = await getContent(subject, chapter, contentType);
+        const messageId = content[lectureNum];
+        if (messageId) {
+          await queryCtx.telegram.forwardMessage(
+            queryCtx.chat?.id!,
+            process.env.GROUP_CHAT_ID || '-1001234567890', // Replace with actual group chat ID
+            parseInt(messageId)
+          );
+        } else {
+          queryCtx.reply('Lecture not found.');
+        }
       }
     });
   };

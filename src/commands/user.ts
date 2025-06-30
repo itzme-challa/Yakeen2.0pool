@@ -1,10 +1,16 @@
-import { Context, Markup } from 'telegraf';
-import { checkAccess, generateToken, saveToken, getSubjects, getChapters, getContent } from '../utils/firebase';
+import { Context, Markup, Telegraf } from 'telegraf';
+import { checkAccess, generateToken, saveToken, getSubjects, getChapters, getContent, checkToken, grantAccess } from '../utils/firebase';
 import { paginate } from '../utils/pagination';
 import axios from 'axios';
 
-export function user() {
-  return async (ctx: Context) => {
+interface MyContext extends Context {
+  session: {
+    state?: string;
+  };
+}
+
+export function user(bot: Telegraf<MyContext>) {
+  return async (ctx: MyContext) => {
     const userId = ctx.from?.id.toString();
     if (!userId) return;
 
@@ -15,15 +21,12 @@ export function user() {
       ctx.reply('Select a subject:', paginate(subjects, 0, 'subject'));
       ctx.session = { ...ctx.session, state: 'subject' };
     } else {
-      // Generate token
       const date = new Date().toLocaleDateString('en-GB').replace(/\//g, '');
       const randomId = Math.random().toString(36).substring(2, 8);
       const token = `Token-${userId}-${date}-${randomId}`;
 
-      // Save token to Firebase
       await saveToken(token, userId, ctx.from?.username || '');
 
-      // Generate shortened link via Adrinolink
       const apiKey = process.env.ADRINOLINK_API_KEY || '';
       const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
       const alias = `${userId}-${date}-TIME`;
@@ -33,13 +36,12 @@ export function user() {
       ctx.reply(`Click the link below to get 24-hour access:\n${shortLink}`);
     }
 
-    // Handle token input
-    bot.on('text', async (textCtx) => {
+    bot.on('text', async (textCtx: MyContext) => {
       const text = textCtx.message?.text;
       if (text?.startsWith('Token-')) {
         const tokenData = await checkToken(text);
         if (tokenData && !tokenData.used) {
-          await grantAccess(textCtx.from?.id.toString(), textCtx.from?.username || '', text);
+          await grantAccess(textCtx.from?.id.toString() || '', textCtx.from?.username || '', text);
           textCtx.reply('Access granted for 24 hours!');
           const subjects = await getSubjects();
           textCtx.reply('Select a subject:', paginate(subjects, 0, 'subject'));
@@ -50,8 +52,7 @@ export function user() {
       }
     });
 
-    // Handle callback queries
-    bot.on('callback_query', async (queryCtx) => {
+    bot.on('callback_query', async (queryCtx: MyContext) => {
       const data = queryCtx.callbackQuery?.data;
       if (!data) return;
 
@@ -80,20 +81,10 @@ export function user() {
         const messageId = (await getContent(subject, chapter, contentType))[lectureNum];
         queryCtx.telegram.forwardMessage(
           queryCtx.chat?.id!,
-          'https://t.me/+zoAO-bH3k6M1MzE1',
+          '-1001234567890', // Replace with actual group chat ID
           parseInt(messageId)
         );
       }
     });
   };
-}
-
-async function checkToken(token: string) {
-  // Fetch token from Firebase
-  // Return token data or null
-}
-
-async function grantAccess(userId: string, username: string, token: string) {
-  // Save user access to Firebase with 24-hour expiry
-  // Mark token as used
 }

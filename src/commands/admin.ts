@@ -80,7 +80,7 @@ async function getChapters(subject: string): Promise<string[]> {
       return ['Biomolecules', 'Cell Structure', 'Animal Kingdom', 'Structural Organisation', 
               'Human Physiology', 'Evolution', 'Genetics'];
     case 'Physics':
-      return ['Mathematical Tools', 'Thermodynamics', 'Electromagnetism', 'Optics', 
+      return ['Mathematical Tools', 'Units and Measurements', 'Vectors', 'Optics', 
               'Modern Physics', 'Waves and Sound', 'Kinematics'];
     case 'Organic Chemistry':
       return ['Hydrocarbons', 'Alcohols and Phenols', 'Aldehydes and Ketones', 

@@ -9,11 +9,27 @@ interface MyContext extends Context {
   };
 }
 
+async function notifyAdmins(bot: Telegraf<MyContext>, userId: string, username: string, error: any, context: string) {
+  const adminChatId = process.env.ADMIN_CHAT_ID || '';
+  if (!adminChatId) {
+    console.error('Admin chat ID not configured.');
+    return;
+  }
+  const errorMessage = `Error in ${context}:\nUser ID: ${userId}\nUsername: ${username || 'Unknown'}\nError: ${error.message || JSON.stringify(error)}`;
+  try {
+    await bot.telegram.sendMessage(adminChatId, errorMessage);
+  } catch (notifyError) {
+    console.error('Failed to notify admins:', notifyError);
+  }
+}
+
 export function user(bot: Telegraf<MyContext>) {
   return async (ctx: MyContext) => {
     const userId = ctx.from?.id.toString();
+    const username = ctx.from?.username || 'Unknown';
     if (!userId) {
       ctx.reply('Error: User ID not found.');
+      await notifyAdmins(bot, 'Unknown', username, new Error('User ID not found'), 'user handler');
       return;
     }
 
@@ -25,87 +41,113 @@ export function user(bot: Telegraf<MyContext>) {
       ctx.session = { ...ctx.session, state: 'subject' };
     } else {
       const token = await generateToken(userId);
-      await saveToken(token, userId, ctx.from?.username || '');
+      await saveToken(token, userId, username);
 
       const apiKey = process.env.ADRINOLINK_API_KEY || '';
       if (!apiKey) {
         ctx.reply('Error: API key is missing.');
+        await notifyAdmins(bot, userId, username, new Error('API key is missing'), 'link shortening');
         return;
       }
 
-      // Generate timestamp for alias (replacing TIME)
-      const timestamp = new Date().toISOString().replace(/[-:.T]/g, '').slice(0, 14); // e.g., 20250701122530
-      const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
-      const alias = `${userId}-${token.split('-')[2]}-${timestamp}`;
+      // Generate timestamp for alias (8 chars: YYYYMMDD)
+      const timestamp = new Date().toISOString().replace(/[-:.T]/g, '').slice(0, 8);
+      // Ensure alias is under 30 characters
+      const tokenPart = token.split('-')[2].slice(0, 10); // Limit token part to 10 chars
+      const userIdPart = userId.slice(0, 8); // Limit userId to 8 chars
+      const alias = `${userIdPart}-${tokenPart}-${timestamp}`.slice(0, 30);
 
+      const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
       try {
         const response = await axios.get(`https://adrinolinks.in/api?api=${apiKey}&url=${encodeURIComponent(url)}&alias=${alias}`);
-        const shortLink = response.data.shortenedUrl; // Use 'shortenedUrl' as per API response
+        console.log('AdrinoLinks API response:', response.data);
 
-        if (response.data.status === 'success' && shortLink) {
-          ctx.reply(`Click the link below to get 24-hour access:\n${shortLink}`);
+        if (response.data.status === 'success' && response.data.shortenedUrl) {
+          ctx.reply(`Click the link below to get 24-hour access:\n${response.data.shortenedUrl}`);
         } else {
           ctx.reply('Error: Failed to shorten the link. Please try again later.');
+          await notifyAdmins(bot, userId, username, new Error(`Invalid API response: ${JSON.stringify(response.data)}`), 'link shortening');
         }
       } catch (error) {
         console.error('Error shortening link:', error);
         ctx.reply('Error: Unable to generate access link. Please try again later.');
+        await notifyAdmins(bot, userId, username, error, 'link shortening');
       }
     }
 
     bot.on('text', async (textCtx: MyContext) => {
+      const textUserId = textCtx.from?.id.toString() || 'Unknown';
+      const textUsername = textCtx.from?.username || 'Unknown';
       if (textCtx.message && 'text' in textCtx.message && typeof textCtx.message.text === 'string' && textCtx.message.text.startsWith('Token-')) {
-        const tokenData = await checkToken(textCtx.message.text);
-        if (tokenData && !tokenData.used) {
-          await grantAccess(textCtx.from?.id.toString() || '', textCtx.from?.username || '', textCtx.message.text);
-          textCtx.reply('Access granted for 24 hours!');
-          const subjects = await getSubjects();
-          textCtx.reply('Select a subject:', paginate(subjects, 0, 'subject'));
-          textCtx.session = { ...textCtx.session, state: 'subject' };
-        } else {
-          textCtx.reply('Invalid or already used token.');
+        try {
+          const tokenData = await checkToken(textCtx.message.text);
+          if (tokenData && !tokenData.used) {
+            await grantAccess(textUserId, textUsername, textCtx.message.text);
+            textCtx.reply('Access granted for 24 hours!');
+            const subjects = await getSubjects();
+            textCtx.reply('Select a subject:', paginate(subjects, 0, 'subject'));
+            textCtx.session = { ...textCtx.session, state: 'subject' };
+          } else {
+            textCtx.reply('Invalid or already used token.');
+          }
+        } catch (error) {
+          console.error('Error processing token:', error);
+          textCtx.reply('Error: Failed to process token. Please try again.');
+          await notifyAdmins(bot, textUserId, textUsername, error, 'token processing');
         }
       }
     });
 
     bot.on('callback_query', async (queryCtx: MyContext) => {
+      const queryUserId = queryCtx.from?.id.toString() || 'Unknown';
+      const queryUsername = queryCtx.from?.username || 'Unknown';
       const callbackQuery = queryCtx.callbackQuery;
-      if (!callbackQuery || !('data' in callbackQuery)) return;
+      if (!callbackQuery || !('data' in callbackQuery)) {
+        await notifyAdmins(bot, queryUserId, queryUsername, new Error('Invalid callback query'), 'callback handler');
+        return;
+      }
 
       const data = callbackQuery.data;
-      if (data.startsWith('subject_')) {
-        const subject = data.split('_')[1];
-        const chapters = await getChapters(subject);
-        queryCtx.reply('Select a chapter:', paginate(chapters, 0, `chapter_${subject}`));
-        queryCtx.session = { ...queryCtx.session, state: `chapter_${subject}` };
-      } else if (data.startsWith('chapter_')) {
-        const [_, subject, chapter] = data.split('_');
-        queryCtx.reply('Select content type:', Markup.inlineKeyboard([
-          [Markup.button.callback('DPP', `content_${subject}_${chapter}_DPP`)],
-          [Markup.button.callback('Notes', `content_${subject}_${chapter}_Notes`)],
-          [Markup.button.callback('Lectures', `content_${subject}_${chapter}_Lectures`)]
-        ]));
-        queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}` };
-      } else if (data.startsWith('content_')) {
-        const [_, subject, chapter, contentType] = data.split('_');
-        const content = await getContent(subject, chapter, contentType);
-        const buttons = Object.keys(content).map(num => 
-          [Markup.button.callback(`Lecture ${num}`, `lecture_${subject}_${chapter}_${contentType}_${num}`)]
-        );
-        queryCtx.reply('Available lectures:', Markup.inlineKeyboard(buttons));
-      } else if (data.startsWith('lecture_')) {
-        const [_, subject, chapter, contentType, lectureNum] = data.split('_');
-        const content = await getContent(subject, chapter, contentType);
-        const messageId = content[lectureNum];
-        if (messageId) {
-          await queryCtx.telegram.forwardMessage(
-            queryCtx.chat?.id!,
-            process.env.GROUP_CHAT_ID || '-1001234567890',
-            parseInt(messageId)
+      try {
+        if (data.startsWith('subject_')) {
+          const subject = data.split('_')[1];
+          const chapters = await getChapters(subject);
+          queryCtx.reply('Select a chapter:', paginate(chapters, 0, `chapter_${subject}`));
+          queryCtx.session = { ...queryCtx.session, state: `chapter_${subject}` };
+        } else if (data.startsWith('chapter_')) {
+          const [_, subject, chapter] = data.split('_');
+          queryCtx.reply('Select content type:', Markup.inlineKeyboard([
+            [Markup.button.callback('DPP', `content_${subject}_${chapter}_DPP`)],
+            [Markup.button.callback('Notes', `content_${subject}_${chapter}_Notes`)],
+            [Markup.button.callback('Lectures', `content_${subject}_${chapter}_Lectures`)]
+          ]));
+          queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}` };
+        } else if (data.startsWith('content_')) {
+          const [_, subject, chapter, contentType] = data.split('_');
+          const content = await getContent(subject, chapter, contentType);
+          const buttons = Object.keys(content).map(num => 
+            [Markup.button.callback(`Lecture ${num}`, `lecture_${subject}_${chapter}_${contentType}_${num}`)]
           );
-        } else {
-          queryCtx.reply('Lecture not found.');
+          queryCtx.reply('Available lectures:', Markup.inlineKeyboard(buttons));
+        } else if (data.startsWith('lecture_')) {
+          const [_, subject, chapter, contentType, lectureNum] = data.split('_');
+          const content = await getContent(subject, chapter, contentType);
+          const messageId = content[lectureNum];
+          if (messageId) {
+            await queryCtx.telegram.forwardMessage(
+              queryCtx.chat?.id!,
+              process.env.GROUP_CHAT_ID || '-1001234567890',
+              parseInt(messageId)
+            );
+          } else {
+            queryCtx.reply('Lecture not found.');
+            await notifyAdmins(bot, queryUserId, queryUsername, new Error(`Lecture not found: ${subject}_${chapter}_${contentType}_${lectureNum}`), 'lecture retrieval');
+          }
         }
+      } catch (error) {
+        console.error('Error in callback handler:', error);
+        queryCtx.reply('Error: Something went wrong. Please try again.');
+        await notifyAdmins(bot, queryUserId, queryUsername, error, 'callback handler');
       }
     });
   };

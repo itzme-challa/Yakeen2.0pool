@@ -2,7 +2,6 @@ import { Context, Markup, Telegraf } from 'telegraf';
 import { checkAccess, generateToken, saveToken, getSubjects, getChapters, getContent, checkToken, grantAccess, getUnusedToken } from '../utils/firebase';
 import { paginate } from '../utils/pagination';
 import axios from 'axios';
-import { getAuth, signInAnonymously } from 'firebase/auth';
 
 interface MyContext extends Context {
   session: {
@@ -34,16 +33,6 @@ export function user(bot: Telegraf<MyContext>) {
     const userId = ctx.from?.id.toString();
     if (!userId) {
       ctx.reply('Error: Unable to identify user. Please try again.');
-      return;
-    }
-
-    // Initialize anonymous authentication
-    try {
-      const auth = getAuth();
-      await signInAnonymously(auth);
-    } catch (error: unknown) {
-      console.error('Anonymous auth error:', error);
-      ctx.reply('Authentication failed. Please try again or contact the admin: @itzfew');
       return;
     }
 

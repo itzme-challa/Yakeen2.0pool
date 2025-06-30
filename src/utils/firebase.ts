@@ -85,7 +85,7 @@ export async function getUnusedToken(userId: string): Promise<string | null> {
   const tokens = snapshot.val();
   if (!tokens) return null;
 
-  for (const [token, data] of Object.entries(tokens)) {
+  for (const [token, data] of Object.entries(tokens) as [string, { used: boolean; userid: string; username: string }][]) {
     if (!data.used && data.userid === userId) {
       return token;
     }

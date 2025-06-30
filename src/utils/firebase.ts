@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, get, set } from 'firebase/database';
+import { getDatabase, ref, get, set, query, orderByChild, equalTo } from 'firebase/database';
 
 const firebaseConfig = {
   apiKey: process.env.FIREBASE_API_KEY,
@@ -48,23 +48,43 @@ export async function checkAccess(userId: string): Promise<boolean> {
 
 export async function saveToken(token: string, userId: string, username: string) {
   const db = getDatabase();
+  const date = token.split('-')[3]; // Extract DDMMYYYY from token
   await set(ref(db, `Tokens/${token}`), {
     used: false,
     userid: userId,
-    username
+    username,
+    date
   });
 }
 
-export async function checkToken(token: string): Promise<{ used: boolean; userid: string; username: string } | null> {
+export async function checkToken(token: string): Promise<{ used: boolean; userid: string; username: string; date: string } | null> {
   const db = getDatabase();
   const snapshot = await get(ref(db, `Tokens/${token}`));
   return snapshot.val() || null;
 }
 
+export async function findExistingToken(userId: string, date: string): Promise<string | null> {
+  const db = getDatabase();
+  const tokensRef = query(
+    ref(db, 'Tokens'),
+    orderByChild('userid'),
+    equalTo(userId)
+  );
+  const snapshot = await get(tokensRef);
+  const tokens = snapshot.val();
+  if (!tokens) return null;
+  for (const token in tokens) {
+    if (tokens[token].date === date && !tokens[token].used) {
+      return token;
+    }
+  }
+  return null;
+}
+
 export async function generateToken(userId: string): Promise<string> {
-  const date = new Date().toLocaleDateString('en-GB').replace(/\//g, '');
-  const randomId = Math.random().toString(36).substring(2, 8);
-  return `Token-${userId}-${date}-${randomId}`;
+  const date = new Date().toLocaleDateString('en-GB').replace(/\//g, ''); // DDMMYYYY
+  const randomId = Math.random().toString(36).substring(2, 8); // 6-char random ID
+  return `Token-${userId}-${randomId}-${date}`;
 }
 
 export async function grantAccess(userId: string, username: string, token: string) {

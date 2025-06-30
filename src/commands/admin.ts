@@ -18,9 +18,10 @@ export function admin(bot: Telegraf<MyContext>) {
     });
 
     bot.on('callback_query', async (queryCtx: MyContext) => {
-      const data = queryCtx.callbackQuery?.data;
-      if (!data) return;
+      const callbackQuery = queryCtx.callbackQuery;
+      if (!callbackQuery || !('data' in callbackQuery)) return;
 
+      const data = callbackQuery.data;
       if (data.startsWith('subject_')) {
         const subject = data.split('_')[1];
         const chapters = await getChapters(subject);
@@ -42,9 +43,9 @@ export function admin(bot: Telegraf<MyContext>) {
     });
 
     bot.on('text', async (textCtx: MyContext) => {
-      if (textCtx.session?.state?.startsWith('message_')) {
+      if (textCtx.session?.state?.startsWith('message_') && 'text' in textCtx.message) {
         const [_, subject, chapter, contentType] = textCtx.session.state.split('_');
-        const messageIds = textCtx.message.text?.split(';').reduce((acc: Record<string, string>, pair: string) => {
+        const messageIds = textCtx.message.text.split(';').reduce((acc: Record<string, string>, pair: string) => {
           const [num, id] = pair.split(',');
           acc[num] = id;
           return acc;
@@ -58,7 +59,7 @@ export function admin(bot: Telegraf<MyContext>) {
   };
 }
 
-async function get Chapters(subject: string): Promise<string[]> {
+async function getChapters(subject: string): Promise<string[]> {
   if (subject === 'Zoology') {
     return ['Biomolecules', 'Cell Structure', 'Animal Kingdom', 'Structural Organisation', 
             'Human Physiology', 'Evolution', 'Genetics'];

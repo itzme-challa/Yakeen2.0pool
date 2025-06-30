@@ -2,6 +2,7 @@ import { Context, Markup, Telegraf } from 'telegraf';
 import { checkAccess, generateToken, saveToken, getSubjects, getChapters, getContent, checkToken, grantAccess, getUnusedToken } from '../utils/firebase';
 import { paginate } from '../utils/pagination';
 import axios from 'axios';
+import { getAuth, signInAnonymously } from 'firebase/auth';
 
 interface MyContext extends Context {
   session: {
@@ -32,6 +33,16 @@ export function user(bot: Telegraf<MyContext>) {
   return async (ctx: MyContext) => {
     const userId = ctx.from?.id.toString();
     if (!userId) return;
+
+    // Initialize anonymous authentication
+    try {
+      const auth = getAuth();
+      await signInAnonymously(auth);
+    } catch (error) {
+      console.error('Anonymous auth error:', error);
+      ctx.reply('Authentication failed. Please try again or contact the admin: @itzfew');
+      return;
+    }
 
     const hasAccess = await checkAccess(userId);
     
@@ -95,7 +106,7 @@ export function user(bot: Telegraf<MyContext>) {
         
         try {
           const response = await axios.get(`https://adrinolinks.in/api?api=${apiKey}&url=${encodeURIComponent(url)}&alias=${alias}`);
-          shortLink = response.data.shortedUrl;
+          shortLink = response.data.shortenedUrl;
           if (!shortLink || response.data.status !== 'success') {
             throw new Error('Failed to generate short link');
           }

@@ -28,14 +28,13 @@ function getFormattedDate(): string {
   return `${day}${month}${year}`;
 }
 
-// Helper function to parse messageId (e.g., "1>92/123" -> { lectureNum: "1", threadId: "92", messageId: "123" })
-function parseMessageId(messageId: string): { lectureNum: string; threadId: string; messageId: string } | null {
-  const match = messageId.match(/^(\d+)>(\d+)\/(\d+)$/);
+// Helper function to parse messageId (e.g., "2/33" -> { threadId: "2", messageId: "33" })
+function parseMessageId(messageId: string): { threadId: string; messageId: string } | null {
+  const match = messageId.match(/^(\d+)\/(\d+)$/);
   if (!match) return null;
   return {
-    lectureNum: match[1],
-    threadId: match[2],
-    messageId: match[3]
+    threadId: match[1],
+    messageId: match[2]
   };
 }
 
@@ -181,7 +180,7 @@ export function user(bot: Telegraf<MyContext>) {
             const parsed = parseMessageId(messageId);
             if (parsed) {
               const { threadId, messageId: actualMessageId } = parsed;
-              console.log(`Forwarding message: threadId=${threadId}, messageId=${actualMessageId}`); // Debug log
+              console.log(`Forwarding message: threadId=${threadId}, messageId=${actualMessageId}, groupChatId=${process.env.GROUP_CHAT_ID || '-1002813390895'}`); // Debug log
               try {
                 await queryCtx.telegram.forwardMessage(
                   queryCtx.chat?.id!,

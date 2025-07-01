@@ -26,7 +26,7 @@ function generateRandomId(length: number = 6): string {
 // Helper function to format date as DDMMYYYY
 function getFormattedDate(): string {
   const date = new Date();
-  const day = date.getDate().toString().pad Dupont(2, '0');
+  const day = date.getDate().toString().padStart(2, '0');
   const month = (date.getMonth() + 1).toString().padStart(2, '0');
   const year = date.getFullYear().toString();
   return `${day}${month}${year}`;
@@ -61,56 +61,70 @@ async function notifyAdmins(bot: Telegraf<MyContext>, userId: string, username: 
 }
 
 export function user(bot: Telegraf<MyContext>) {
-  return async (ctx: MyContext) => {
+  return (ctx: MyContext) => {
     const userId = ctx.from?.id.toString();
     const username = ctx.from?.username || 'Unknown';
     if (!userId) {
       ctx.reply('Error: User ID not found.');
-      await notifyAdmins(bot, 'Unknown', username, new Error('User ID not found'), 'user handler');
+      notifyAdmins(bot, 'Unknown', username, new Error('User ID not found'), 'user handler');
       return;
     }
 
-    const hasAccess = await checkAccess(userId);
+    checkAccess(userId).then(hasAccess => {
+      if (hasAccess) {
+        getSubjects().then(subjects => {
+          const pagination = paginate(subjects, 0, 'user_subject');
+          ctx.reply('Select a subject:', pagination.reply_markup).then(msg => {
+            ctx.session = { ...ctx.session, state: 'user_subject', messageId: msg.message_id };
+          });
+        }).catch(error => {
+          ctx.reply('Error fetching subjects.');
+          notifyAdmins(bot, userId, username, error, 'fetch subjects');
+        });
+      } else {
+        getOrGenerateToken(userId).then(token => {
+          saveToken(token, userId, username).then(() => {
+            const apiKey = process.env.ADRINOLINK_API_KEY || '';
+            if (!apiKey) {
+              ctx.reply('Error: API key is missing.');
+              notifyAdmins(bot, userId, username, new Error('API key is missing'), 'link shortening');
+              return;
+            }
 
-    if (hasAccess) {
-      const subjects = await getSubjects();
-      const pagination = paginate(subjects, 0, 'user_subject');
-      ctx.reply('Select a subject:', pagination.reply_markup).then(msg => {
-        ctx.session = { ...ctx.session, state: 'user_subject', messageId: msg.message_id };
-      });
-    } else {
-      const token = await getOrGenerateToken(userId);
-      await saveToken(token, userId, username);
+            const date = getFormattedDate();
+            const userIdPart = userId.slice(0, 8);
+            const randomId = generateRandomId(6);
+            const alias = `${userIdPart}-${date}-${randomId}`.slice(0, 30);
 
-      const apiKey = process.env.ADRINOLINK_API_KEY || '';
-      if (!apiKey) {
-        ctx.reply('Error: API key is missing.');
-        await notifyAdmins(bot, userId, username, new Error('API key is missing'), 'link shortening');
-        return;
+            const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
+            axios.get(`https://adrinolinks.in/api?api=${apiKey}&url=${encodeURIComponent(url)}&alias=${alias}`)
+              .then(response => {
+                console.log('AdrinoLinks API response:', response.data);
+                if (response.data.status === 'success' && response.data.shortenedUrl) {
+                  ctx.reply(`Click the link below to get 24-hour access:\n${response.data.shortenedUrl}`);
+                } else {
+                  ctx.reply('Error: Failed to shorten the link. Please try again later.');
+                  notifyAdmins(bot, userId, username, new Error(`Invalid API response: ${JSON.stringify(response.data)}`), 'link shortening');
+                }
+              })
+              .catch(error => {
+                console.error('Error shortening link:', error);
+                ctx.reply('Error: Unable to generate access link. Please try again later.');
+                notifyAdmins(bot, userId, username, error, 'link shortening');
+              });
+          }).catch(error => {
+            ctx.reply('Error saving token.');
+            notifyAdmins(bot, userId, username, error, 'save token');
+          });
+        }).catch(error => {
+          ctx.reply('Error generating token.');
+          notifyAdmins(bot, userId, username, error, 'generate token');
+        });
       }
-
-      const date = getFormattedDate();
-      const userIdPart = userId.slice(0, 8);
-      const randomId = generateRandomId(6);
-      const alias = `${userIdPart}-${date}-${randomId}`.slice(0, 30);
-
-      const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
-      try {
-        const response = await axios.get(`https://adrinolinks.in/api?api=${apiKey}&url=${encodeURIComponent(url)}&alias=${alias}`);
-        console.log('AdrinoLinks API response:', response.data);
-
-        if (response.data.status === 'success' && response.data.shortenedUrl) {
-          ctx.reply(`Click the link below to get 24-hour access:\n${response.data.shortenedUrl}`);
-        } else {
-          ctx.reply('Error: Failed to shorten the link. Please try again later.');
-          await notifyAdmins(bot, userId, username, new Error(`Invalid API response: ${JSON.stringify(response.data)}`), 'link shortening');
-        }
-      } catch (error) {
-        console.error('Error shortening link:', error);
-        ctx.reply('Error: Unable to generate access link. Please try again later.');
-        await notifyAdmins(bot, userId, username, error, 'link shortening');
-      }
-    }
+    }).catch(error => {
+      ctx.reply('Error checking access.');
+      notifyAdmins(bot, userId, username, error, 'check access');
+    });
   };
 }
 

@@ -71,9 +71,9 @@ export function user(bot: Telegraf<MyContext>) {
 
     if (hasAccess) {
       const subjects = await getSubjects();
-      const pagination = paginate(subjects, 0, 'subject');
+      const pagination = paginate(subjects, 0, 'user_subject');
       ctx.reply('Select a subject:', pagination.reply_markup).then(msg => {
-        ctx.session = { ...ctx.session, state: 'subject', messageId: msg.message_id };
+        ctx.session = { ...ctx.session, state: 'user_subject', messageId: msg.message_id };
       });
     } else {
       const token = await getOrGenerateToken(userId);
@@ -122,9 +122,9 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
           await grantAccess(textUserId, textUsername, textCtx.message.text);
           textCtx.reply('Access granted for 24 hours!');
           const subjects = await getSubjects();
-          const pagination = paginate(subjects, 0, 'subject');
+          const pagination = paginate(subjects, 0, 'user_subject');
           textCtx.reply('Select a subject:', pagination.reply_markup).then(msg => {
-            textCtx.session = { ...textCtx.session, state: 'subject', messageId: msg.message_id };
+            textCtx.session = { ...textCtx.session, state: 'user_subject', messageId: msg.message_id };
           });
         } else {
           textCtx.reply('Invalid or already used token.');
@@ -148,8 +148,8 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
 
     const data = callbackQuery.data;
     try {
-      if (data.startsWith('paginate_')) {
-        const [_, prefix, action, pageStr] = data.split('_');
+      if (data.startsWith('paginate_user_')) {
+        const [_, __, prefix, action, pageStr] = data.split('_');
         const page = parseInt(pageStr);
         if (isNaN(page)) {
           queryCtx.reply('Error: Invalid page number.');
@@ -161,13 +161,13 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
           items = await getSubjects();
         } else if (prefix.startsWith('chapter_')) {
           const subject = prefix.split('_')[1];
-          items = await getChapters(subject); // Use Firebase for users
+          items = await getChapters(subject);
         } else {
           queryCtx.reply('Error: Invalid pagination context.');
           return;
         }
 
-        const pagination = paginate(items, page, prefix);
+        const pagination = paginate(items, page, `user_${prefix}`);
         if (pagination.totalPages <= page || page < 0) {
           queryCtx.reply('Error: Page out of bounds.');
           return;
@@ -188,16 +188,16 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
             queryCtx.session = { ...queryCtx.session, messageId: msg.message_id };
           });
         }
-        queryCtx.session = { ...queryCtx.session, state: prefix };
-      } else if (data.startsWith('subject_')) {
-        const subject = data.split('_')[1];
+        queryCtx.session = { ...queryCtx.session, state: `user_${prefix}` };
+      } else if (data.startsWith('user_subject_')) {
+        const subject = data.split('_')[2];
         const chapters = await getChapters(subject);
-        const pagination = paginate(chapters, 0, `chapter_${subject}`);
+        const pagination = paginate(chapters, 0, `user_chapter_${subject}`);
         queryCtx.reply('Select a chapter:', pagination.reply_markup).then(msg => {
-          queryCtx.session = { ...queryCtx.session, state: `chapter_${subject}`, messageId: msg.message_id };
+          queryCtx.session = { ...queryCtx.session, state: `user_chapter_${subject}`, messageId: msg.message_id };
         });
-      } else if (data.startsWith('chapter_')) {
-        const [_, subject, chapter] = data.split('_');
+      } else if (data.startsWith('user_chapter_')) {
+        const [_, __, subject, chapter] = data.split('_');
         queryCtx.reply('Select content type:', Markup.inlineKeyboard([
           [Markup.button.callback('DPP', `content_${subject}_${chapter}_DPP`)],
           [Markup.button.callback('Notes', `content_${subject}_${chapter}_Notes`)],
@@ -241,7 +241,7 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
             );
           }
         } else {
-          query457Ctx.reply('Lecture not found.');
+          queryCtx.reply('Lecture not found.');
           await notifyAdmins(
             bot,
             queryUserId,

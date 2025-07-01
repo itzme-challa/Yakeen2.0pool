@@ -10,15 +10,21 @@ export function paginate(items: string[], page: number, prefix: string, itemsPer
   
   const navButtons = [];
   if (page > 0) {
-    navButtons.push(Markup.button.callback('Previous', `${prefix}_prev_${page - 1}`));
+    navButtons.push(Markup.button.callback('Previous', `paginate_${prefix}_prev_${page - 1}`));
   }
   if (page < totalPages - 1) {
-    navButtons.push(Markup.button.callback('Next', `${prefix}_next_${page + 1}`));
+    navButtons.push(Markup.button.callback('Next', `paginate_${prefix}_next_${page + 1}`));
   }
 
   if (navButtons.length > 0) {
     buttons.push(navButtons);
   }
 
-  return Markup.inlineKeyboard(buttons);
+  return {
+    reply_markup: Markup.inlineKeyboard(buttons),
+    totalPages,
+    currentPage: page,
+    prefix,
+    itemsPerPage
+  };
 }

@@ -31,12 +31,11 @@ export async function getContent(subject: string, chapter: string, contentType: 
   const db = getDatabase();
   const snapshot = await get(ref(db, `Subjects/${subject}/${chapter}/${contentType}`));
   const content = snapshot.val() || {};
-  // Handle legacy data in x/y format (optional, for backward compatibility)
   return Object.keys(content).reduce((acc: Record<string, string>, key: string) => {
     const messageId = content[key].includes('/') ? content[key].split('/')[1] : content[key];
     if (!messageId || isNaN(parseInt(messageId))) {
       console.warn(`Invalid message ID for ${subject}/${chapter}/${contentType}/${key}: ${content[key]}`);
-      return acc; // Skip invalid message IDs
+      return acc;
     }
     acc[key] = messageId;
     return acc;
@@ -45,13 +44,14 @@ export async function getContent(subject: string, chapter: string, contentType: 
 
 export async function saveContent(subject: string, chapter: string, contentType: string, messageIds: Record<string, string>) {
   const db = getDatabase();
-  // Validate message IDs
   for (const [key, messageId] of Object.entries(messageIds)) {
     if (!messageId || isNaN(parseInt(messageId))) {
       throw new Error(`Invalid message ID for ${subject}/${chapter}/${contentType}/${key}: ${messageId}`);
     }
   }
-  await set(ref(db, `Subjects/${subject}/${chapter}/${contentType}`), messageIds);
+  const existingContent = await getContent(subject, chapter, contentType);
+  const updatedContent = { ...existingContent, ...messageIds };
+  await set(ref(db, `Subjects/${subject}/${chapter}/${contentType}`), updatedContent);
 }
 
 export async function checkAccess(userId: string): Promise<boolean> {
@@ -64,7 +64,7 @@ export async function checkAccess(userId: string): Promise<boolean> {
 
 export async function saveToken(token: string, userId: string, username: string) {
   const db = getDatabase();
-  const date = token.split('-')[3]; // Extract DDMMYYYY from token
+  const date = token.split('-')[3];
   await set(ref(db, `Tokens/${token}`), {
     used: false,
     userid: userId,

@@ -72,13 +72,9 @@ export function user(bot: Telegraf<MyContext>) {
     if (hasAccess) {
       const subjects = await getSubjects();
       const pagination = paginate(subjects, 0, 'user_subject');
-      try {
-        const msg = await ctx.reply('Select a subject:', pagination.reply_markup);
+      ctx.reply('Select a subject:', pagination.reply_markup).then(msg => {
         ctx.session = { ...ctx.session, state: 'user_subject', messageId: msg.message_id };
-      } catch (error) {
-        await notifyAdmins(bot, userId, username, error, 'subject list display');
-        ctx.reply('Error displaying subjects. Please try again.');
-      }
+      });
     } else {
       const token = await getOrGenerateToken(userId);
       await saveToken(token, userId, username);
@@ -127,8 +123,9 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
           textCtx.reply('Access granted for 24 hours!');
           const subjects = await getSubjects();
           const pagination = paginate(subjects, 0, 'user_subject');
-          const msg = await textCtx.reply('Select a subject:', pagination.reply_markup);
-          textCtx.session = { ...ctx.session, state: 'user_subject', messageId: msg.message_id };
+          textCtx.reply('Select a subject:', pagination.reply_markup).then(msg => {
+            textCtx.session = { ...textCtx.session, state: 'user_subject', messageId: msg.message_id };
+          });
         } else {
           textCtx.reply('Invalid or already used token.');
         }
@@ -160,14 +157,11 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
         }
 
         let items: string[];
-        let messageText: string;
         if (prefix === 'subject') {
           items = await getSubjects();
-          messageText = 'Select a subject:';
         } else if (prefix.startsWith('chapter_')) {
           const subject = prefix.split('_')[1];
           items = await getChapters(subject);
-          messageText = 'Select a chapter:';
         } else {
           queryCtx.reply('Error: Invalid pagination context.');
           return;
@@ -179,6 +173,7 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
           return;
         }
 
+        const messageText = prefix === 'subject' ? 'Select a subject:' : 'Select a chapter:';
         try {
           await queryCtx.telegram.editMessageText(
             queryCtx.chat?.id!,
@@ -187,111 +182,39 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
             messageText,
             pagination.reply_markup
           );
-          queryCtx.session = { ...queryCtx.session, state: `user_${prefix}` };
         } catch (editError) {
           console.warn('Failed to edit message, sending new one:', editError);
-          const msg = await queryCtx.reply(messageText, pagination.reply_markup);
-          queryCtx.session = { ...queryCtx.session, state: `user_${prefix}`, messageId: msg.message_id };
+          queryCtx.reply(messageText, pagination.reply_markup).then(msg => {
+            queryCtx.session = { ...queryCtx.session, messageId: msg.message_id };
+          });
         }
-      } else if (data === 'back') {
-        if (queryCtx.session?.state?.startsWith('user_chapter_')) {
-          const subjects = await getSubjects();
-          const pagination = paginate(subjects, 0, 'user_subject');
-          try {
-            await queryCtx.telegram.editMessageText(
-              queryCtx.chat?.id!,
-              queryCtx.session?.messageId!,
-              undefined,
-              'Select a subject:',
-              pagination.reply_markup
-            );
-            queryCtx.session = { ...queryCtx.session, state: 'user_subject' };
-          } catch (editError) {
-            console.warn('Failed to edit message for back, sending new one:', editError);
-            const msg = await queryCtx.reply('Select a subject:', pagination.reply_markup);
-            queryCtx.session = { ...queryCtx.session, state: 'user_subject', messageId: msg.message_id };
-          }
-        } else if (queryCtx.session?.state?.startsWith('content_')) {
-          const subject: string = queryCtx.session.state.split('_')[1]; // Fixed: Proper variable declaration and typing
-          const chapters = await getChapters(subject);
-          const pagination = paginate(chapters, 0, `user_chapter_${subject}`);
-          try {
-            await queryCtx.telegram.editMessageText(
-              queryCtx.chat?.id!,
-              queryCtx.session?.messageId!,
-              undefined,
-              'Select a chapter:',
-              pagination.reply_markup
-            );
-            queryCtx.session = { ...queryCtx.session, state: `user_chapter_${subject}` };
-          } catch (editError) {
-            console.warn('Failed to edit message for back, sending new one:', editError);
-            const msg = await queryCtx.reply('Select a chapter:', pagination.reply_markup);
-            queryCtx.session = { ...queryCtx.session, state: `user_chapter_${subject}`, messageId: msg.message_id };
-          }
-        }
+        queryCtx.session = { ...queryCtx.session, state: `user_${prefix}` };
       } else if (data.startsWith('user_subject_')) {
         const subject = data.split('_')[2];
         const chapters = await getChapters(subject);
         const pagination = paginate(chapters, 0, `user_chapter_${subject}`);
-        try {
-          await queryCtx.telegram.editMessageText(
-            queryCtx.chat?.id!,
-            queryCtx.session?.messageId!,
-            undefined,
-            'Select a chapter:',
-            pagination.reply_markup
-          );
-          queryCtx.session = { ...queryCtx.session, state: `user_chapter_${subject}` };
-        } catch (editError) {
-          console.warn('Failed to edit message, sending new one:', editError);
-          const msg = await queryCtx.reply('Select a chapter:', pagination.reply_markup);
+        queryCtx.reply('Select a chapter:', pagination.reply_markup).then(msg => {
           queryCtx.session = { ...queryCtx.session, state: `user_chapter_${subject}`, messageId: msg.message_id };
-        }
+        });
       } else if (data.startsWith('user_chapter_')) {
         const [_, __, subject, chapter] = data.split('_');
-        const buttons = [
+        queryCtx.reply('Select content type:', Markup.inlineKeyboard([
           [Markup.button.callback('DPP', `content_${subject}_${chapter}_DPP`)],
           [Markup.button.callback('Notes', `content_${subject}_${chapter}_Notes`)],
           [Markup.button.callback('Lectures', `content_${subject}_${chapter}_Lectures`)],
-          [Markup.button.callback('Back', 'back')]
-        ];
-        try {
-          await queryCtx.telegram.editMessageText(
-            queryCtx.chat?.id!,
-            queryCtx.session?.messageId!,
-            undefined,
-            'Select content type:',
-            Markup.inlineKeyboard(buttons)
-          );
-          queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}` };
-        } catch (editError) {
-          console.warn('Failed to edit message, sending new one:', editError);
-          const msg = await queryCtx.reply('Select content type:', Markup.inlineKeyboard(buttons));
+        ])).then(msg => {
           queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}`, messageId: msg.message_id };
-        }
+        });
       } else if (data.startsWith('content_')) {
         const [_, subject, chapter, contentType] = data.split('_');
         const content = await getContent(subject, chapter, contentType);
         console.log(`Content for ${subject}/${chapter}/${contentType}:`, content);
         const buttons = Object.keys(content).map((num) => [
-          Markup.button.callback(`Lecture ${num}`, `lecture_${subject}_${chapter}_${contentType}_${num}`)
+          Markup.button.callback(`Lecture ${num}`, `lecture_${subject}_${chapter}_${contentType}_${num}`),
         ]);
-        buttons.push([Markup.button.callback('Back', 'back')]);
-        try {
-          await queryCtx.telegram.editMessageText(
-            queryCtx.chat?.id!,
-            queryCtx.session?.messageId!,
-            undefined,
-            'Available lectures:',
-            Markup.inlineKeyboard(buttons)
-          );
-          queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}` };
-        } catch (editError) {
-          console.warn('Failed to edit message, sending new one:', editError);
-          const msg = await queryCtx.reply('Available lectures:', Markup.inlineKeyboard(buttons));
-          queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}`, messageId: msg.message_id };
-        }
+        queryCtx.reply('Available lectures:', Markup.inlineKeyboard(buttons)).then(msg => {
+          queryCtx.session = { ...queryCtx.session, messageId: msg.message_id };
+        });
       } else if (data.startsWith('lecture_')) {
         const [_, subject, chapter, contentType, lectureNum] = data.split('_');
         const content = await getContent(subject, chapter, contentType);
@@ -305,21 +228,6 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
               process.env.GROUP_CHAT_ID || '-1002813390895',
               parseInt(messageId)
             );
-            // Send back button to return to content selection
-            const buttons = [[Markup.button.callback('Back', 'back')]];
-            try {
-              await queryCtx.telegram.editMessageText(
-                queryCtx.chat?.id!,
-                queryCtx.session?.messageId!,
-                undefined,
-                'Select another lecture:',
-                Markup.inlineKeyboard(buttons)
-              );
-            } catch (editError) {
-              console.warn('Failed to edit message after lecture, sending new one:', editError);
-              const msg = await queryCtx.reply('Select another lecture:', Markup.inlineKeyboard(buttons));
-              queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}`, messageId: msg.message_id };
-            }
           } catch (forwardError: unknown) {
             const error = forwardError instanceof Error ? forwardError : new Error('Unknown error during message forwarding');
             console.error('Forward message error:', error);

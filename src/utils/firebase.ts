@@ -30,11 +30,27 @@ export async function getChapters(subject: string): Promise<string[]> {
 export async function getContent(subject: string, chapter: string, contentType: string): Promise<Record<string, string>> {
   const db = getDatabase();
   const snapshot = await get(ref(db, `Subjects/${subject}/${chapter}/${contentType}`));
-  return snapshot.val() || {};
+  const content = snapshot.val() || {};
+  // Handle legacy data in x/y format (optional, for backward compatibility)
+  return Object.keys(content).reduce((acc: Record<string, string>, key: string) => {
+    const messageId = content[key].includes('/') ? content[key].split('/')[1] : content[key];
+    if (!messageId || isNaN(parseInt(messageId))) {
+      console.warn(`Invalid message ID for ${subject}/${chapter}/${contentType}/${key}: ${content[key]}`);
+      return acc; // Skip invalid message IDs
+    }
+    acc[key] = messageId;
+    return acc;
+  }, {});
 }
 
 export async function saveContent(subject: string, chapter: string, contentType: string, messageIds: Record<string, string>) {
   const db = getDatabase();
+  // Validate message IDs
+  for (const [key, messageId] of Object.entries(messageIds)) {
+    if (!messageId || isNaN(parseInt(messageId))) {
+      throw new Error(`Invalid message ID for ${subject}/${chapter}/${contentType}/${key}: ${messageId}`);
+    }
+  }
   await set(ref(db, `Subjects/${subject}/${chapter}/${contentType}`), messageIds);
 }
 
@@ -79,12 +95,6 @@ export async function findExistingToken(userId: string, date: string): Promise<s
     }
   }
   return null;
-}
-
-export async function generateToken(userId: string): Promise<string> {
-  const date = new Date().toLocaleDateString('en-GB').replace(/\//g, ''); // DDMMYYYY
-  const randomId = Math.random().toString(36).substring(2, 8); // 6-char random ID
-  return `Token-${userId}-${randomId}-${date}`;
 }
 
 export async function grantAccess(userId: string, username: string, token: string) {

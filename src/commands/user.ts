@@ -128,7 +128,7 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
           const subjects = await getSubjects();
           const pagination = paginate(subjects, 0, 'user_subject');
           const msg = await textCtx.reply('Select a subject:', pagination.reply_markup);
-          textCtx.session = { ...ctx.session, state: 'user_subject', messageId: msg.message_id };
+          textCtx.session = { ...textCtx.session, state: 'user_subject', messageId: msg.message_id };
         } else {
           textCtx.reply('Invalid or already used token.');
         }
@@ -221,7 +221,7 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
               queryCtx.session?.messageId!,
               undefined,
               'Select a chapter:',
-              pagination.reply_markup markdown
+              pagination.reply_markup
             );
             queryCtx.session = { ...queryCtx.session, state: `user_chapter_${subject}` };
           } catch (editError) {
@@ -239,10 +239,10 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
             queryCtx.chat?.id!,
             queryCtx.session?.messageId!,
             undefined,
-            'Select a chapter:',
+  'Select a chapter:',
             pagination.reply_markup
           );
-          мерыqueryCtx.session = { ...queryCtx.session, state: `user_chapter_${subject}` };
+          queryCtx.session = { ...queryCtx.session, state: `user_chapter_${subject}` };
         } catch (editError) {
           console.warn('Failed to edit message, sending new one:', editError);
           const msg = await queryCtx.reply('Select a chapter:', pagination.reply_markup);

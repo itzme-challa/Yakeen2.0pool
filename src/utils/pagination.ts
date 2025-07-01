@@ -15,6 +15,9 @@ export function paginate(items: string[], page: number, prefix: string, itemsPer
   if (page < totalPages - 1) {
     navButtons.push(Markup.button.callback('Next', `paginate_${prefix}_next_${page + 1}`));
   }
+  if (prefix !== 'admin_subject' && prefix !== 'user_subject') {
+    navButtons.push(Markup.button.callback('Back', 'back'));
+  }
 
   if (navButtons.length > 0) {
     buttons.push(navButtons);

@@ -45,7 +45,7 @@ export function admin(bot: Telegraf<MyContext>) {
         queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}` };
       } else if (data.startsWith('content_')) {
         const [_, subject, chapter, contentType] = data.split('_');
-        queryCtx.reply('Please send the message IDs in the format: 1,2/12345;2,2/67890 (topic_id/message_id)');
+        queryCtx.reply('Please send the message IDs in the format: 1,2/12345;2,2/67890 (topic_id/message_id). Only the message_id will be saved.');
         queryCtx.session = { ...queryCtx.session, state: `message_${subject}_${chapter}_${contentType}` };
       }
     });
@@ -59,13 +59,17 @@ export function admin(bot: Telegraf<MyContext>) {
             if (!id.includes('/')) {
               throw new Error('Invalid message ID format. Use topic_id/message_id (e.g., 2/12345).');
             }
-            acc[num] = id;
+            const messageId = id.split('/')[1]; // Extract only the message_id (y) part
+            if (!messageId || isNaN(parseInt(messageId))) {
+              throw new Error('Invalid message ID. The message_id must be a valid number.');
+            }
+            acc[num] = messageId;
             return acc;
           }, {});
           
           await saveContent(subject, chapter, contentType, messageIds);
           textCtx.reply('Content saved successfully!');
-          textCtx.session = { ...ctx.session, state: undefined };
+          textCtx.session = { ...textCtx.session, state: undefined };
         } catch (error) {
           textCtx.reply(`Error saving content: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`);
         }

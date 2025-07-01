@@ -1,174 +1,241 @@
 import { Context, Markup, Telegraf } from 'telegraf';
-import { getSubjects, saveContent } from '../utils/firebase';
+import { getSubjects, getChapters, saveContent } from '../utils/firebase';
 import { paginate } from '../utils/pagination';
 
 interface MyContext extends Context {
   session: {
     state?: string;
     messageId?: number;
+    subject?: string;
+    chapter?: string;
+    contentType?: string;
   };
 }
 
-const ALLOWED_ADMIN_IDS = ['6930703214', '6930903213'];
+const ADMIN_IDS = ['6930703214', '6930903213'];
 
-// Local function to get subjects (hardcoded, not from Firebase)
-const getLocalSubjects = async (): Promise<string[]> => {
-  console.log('getLocalSubjects called'); // Debug log
-  return ['Zoology', 'Botany', 'Physics', 'Organic Chemistry', 'Inorganic Chemistry', 'Physical Chemistry'];
+const SUBJECT_CHAPTERS = {
+  'Zoology': ['Biomolecules', 'Cell Structure', 'Animal Kingdom', 'Structural Organisation', 'Human Physiology', 'Evolution', 'Genetics'],
+  'Botany': ['Plant Kingdom', 'Morphology of Flowering Plants', 'Anatomy of Flowering Plants', 'Plant Physiology', 'Reproduction in Plants', 'Genetics and Evolution', 'Biotechnology'],
+  'Physics': ['Mathematical Tools', 'Units and Measurements', 'Vectors', 'Optics', 'Modern Physics', 'Waves and Sound', 'Kinematics'],
+  'Organic Chemistry': ['Hydrocarbons', 'Alcohols and Phenols', 'Aldehydes and Ketones', 'Carboxylic Acids', 'Amines', 'Biomolecules', 'Polymers'],
+  'Inorganic Chemistry': ['Periodic Table', 'Chemical Bonding', 'Coordination Compounds', 'Metallurgy', 'P-Block Elements', 'D-Block Elements', 'S-Block Elements'],
+  'Physical Chemistry': ['Some Basic Concepts', 'Atomic Structure', 'Chemical Kinetics', 'Thermodynamics', 'Equilibrium', 'Electrochemistry', 'States of Matter', 'Solutions']
 };
 
-// Local function to get chapters (hardcoded, not from Firebase)
-async function getLocalChapters(subject: string): Promise<string[]> {
-  console.log(`getLocalChapters called for subject: ${subject}`); // Debug log
-  switch (subject) {
-    case 'Zoology':
-      return ['Biomolecules', 'Cell Structure', 'Animal Kingdom', 'Structural Organisation', 
-              'Human Physiology', 'Evolution', 'Genetics'];
-    case 'Botany':
-      return ['Plant Kingdom', 'Morphology of Flowering Plants', 'Anatomy of Flowering Plants', 
-              'Plant Physiology', 'Reproduction in Plants', 'Genetics and Evolution', 'Biotechnology'];
-    case 'Physics':
-      return ['Mathematical Tools', 'Units and Measurements', 'Vectors', 'Optics', 
-              'Modern Physics', 'Waves and Sound', 'Kinematics'];
-    case 'Organic Chemistry':
-      return ['Hydrocarbons', 'Alcohols and Phenols', 'Aldehydes and Ketones', 
-              'Carboxylic Acids', 'Amines', 'Biomolecules', 'Polymers'];
-    case 'Inorganic Chemistry':
-      return ['Periodic Table', 'Chemical Bonding', 'Coordination Compounds', 
-              'Metallurgy', 'P-Block Elements', 'D-Block Elements', 'S-Block Elements'];
-    case 'Physical Chemistry':
-      return ['Some Basic Concepts', 'Atomic Structure', 'Chemical Kinetics', 'Thermodynamics', 
-              'Equilibrium', 'Electrochemistry', 'States of Matter', 'Solutions'];
-    default:
-      console.warn(`No chapters defined for subject: ${subject}`);
-      return [];
-  }
-}
-
 export function admin(bot: Telegraf<MyContext>) {
-  return async (ctx: MyContext) => {
+  bot.command('admin', async (ctx: MyContext) => {
     const userId = ctx.from?.id.toString();
-    if (!userId || !ALLOWED_ADMIN_IDS.includes(userId)) {
-      ctx.reply('You are not authorized to use this command.');
+    if (!userId || !ADMIN_IDS.includes(userId)) {
+      ctx.reply('Access denied: You are not an admin.');
       return;
     }
 
-    const subjects = await getLocalSubjects();
+    const subjects = Object.keys(SUBJECT_CHAPTERS);
     const pagination = paginate(subjects, 0, 'admin_subject');
     ctx.reply('Select a subject:', pagination.reply_markup).then(msg => {
       ctx.session = { ...ctx.session, state: 'admin_subject', messageId: msg.message_id };
     });
+  });
 
-    // Register callback query handler
-    bot.on('callback_query', async (queryCtx: MyContext) => {
-      const callbackQuery = queryCtx.callbackQuery;
-      if (!callbackQuery || !('data' in callbackQuery)) {
-        console.warn('Invalid callback query received');
-        return;
-      }
+  bot.on('text', async (ctx: MyContext) => {
+    const userId = ctx.from?.id.toString();
+    if (!userId || !ADMIN_IDS.includes(userId) || !ctx.session?.state?.startsWith('admin_awaiting_ids_')) {
+      return;
+    }
 
-      const data = callbackQuery.data;
-      try {
-        if (data.startsWith('paginate_admin_')) {
-          const [_, __, prefix, action, pageStr] = data.split('_');
-          const page = parseInt(pageStr);
-          if (isNaN(page)) {
-            queryCtx.reply('Error: Invalid page number.');
-            return;
-          }
+    const [, , subject, chapter, contentType] = ctx.session.state.split('_');
+    const input = ctx.message?.text?.trim();
+    if (!input) {
+      ctx.reply('Please provide message IDs in the format: 1,123;2,124;x,y');
+      return;
+    }
 
-          let items: string[];
-          if (prefix === 'subject') {
-            items = await getLocalSubjects();
-          } else if (prefix.startsWith('chapter_')) {
-            const subject = prefix.split('_')[1];
-            items = await getLocalChapters(subject);
-          } else {
-            queryCtx.reply('Error: Invalid pagination context.');
-            return;
-          }
-
-          const pagination = paginate(items, page, `admin_${prefix}`);
-          if (pagination.totalPages <= page || page < 0) {
-            queryCtx.reply('Error: Page out of bounds.');
-            return;
-          }
-
-          const messageText = prefix === 'subject' ? 'Select a subject:' : 'Select a chapter:';
-          try {
-            await queryCtx.telegram.editMessageText(
-              queryCtx.chat?.id!,
-              queryCtx.session?.messageId!,
-              undefined,
-              messageText,
-              pagination.reply_markup
-            );
-          } catch (editError) {
-            console.warn('Failed to edit message, sending new one:', editError);
-            queryCtx.reply(messageText, pagination.reply_markup).then(msg => {
-              queryCtx.session = { ...queryCtx.session, messageId: msg.message_id };
-            });
-          }
-          queryCtx.session = { ...queryCtx.session, state: `admin_${prefix}` };
-        } else if (data.startsWith('admin_subject_')) {
-          const subject = data.split('_')[2];
-          console.log(`Processing admin subject selection: ${subject}`);
-          const chapters = await getLocalChapters(subject);
-          if (chapters.length === 0) {
-            queryCtx.reply('No chapters available for this subject.');
-            return;
-          }
-          const pagination = paginate(chapters, 0, `admin_chapter_${subject}`);
-          queryCtx.reply('Select a chapter:', pagination.reply_markup).then(msg => {
-            queryCtx.session = { ...queryCtx.session, state: `admin_chapter_${subject}`, messageId: msg.message_id };
-          });
-        } else if (data.startsWith('admin_chapter_')) {
-          const [_, __, subject, chapter] = data.split('_');
-          queryCtx.reply('Select content type:', Markup.inlineKeyboard([
-            [Markup.button.callback('DPP', `content_${subject}_${chapter}_DPP`)],
-            [Markup.button.callback('Notes', `content_${subject}_${chapter}_Notes`)],
-            [Markup.button.callback('Lectures', `content_${subject}_${chapter}_Lectures`)]
-          ])).then(msg => {
-            queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}`, messageId: msg.message_id };
-          });
-        } else if (data.startsWith('content_')) {
-          const [_, subject, chapter, contentType] = data.split('_');
-          queryCtx.reply('Please send the message IDs in the format: 1,2/12345;2,2/67890 (topic_id/message_id). Only the message_id will be saved.');
-          queryCtx.session = { ...queryCtx.session, state: `message_${subject}_${chapter}_${contentType}` };
+    try {
+      const messageIds: Record<string, string> = {};
+      const pairs = input.split(';').map(pair => pair.trim());
+      for (const pair of pairs) {
+        const [num, id] = pair.split(',').map(s => s.trim());
+        if (!num || !id || isNaN(parseInt(num)) || isNaN(parseInt(id))) {
+          ctx.reply(`Invalid format in pair "${pair}". Use: number,messageId (e.g., 1,123)`);
+          return;
         }
-      } catch (error) {
-        console.error('Error in callback handler:', error);
-        queryCtx.reply('Error: Something went wrong. Please try again.');
-      } finally {
-        await queryCtx.answerCbQuery();
+        messageIds[num] = id;
       }
-    });
 
-    // Register text handler
-    bot.on('text', async (textCtx: MyContext) => {
-      if (textCtx.session?.state?.startsWith('message_') && textCtx.message && 'text' in textCtx.message && typeof textCtx.message.text === 'string') {
-        const [_, subject, chapter, contentType] = textCtx.session.state.split('_');
+      await saveContent(subject, chapter, contentType, messageIds);
+      ctx.reply(`Successfully saved ${contentType} for ${subject}/${chapter}.`);
+      ctx.session = { ...ctx.session, state: undefined, subject: undefined, chapter: undefined, contentType: undefined };
+    } catch (error) {
+      console.error('Error saving content:', error);
+      ctx.reply('Error saving content. Please try again.');
+    }
+  });
+
+  bot.on('callback_query', async (ctx: MyContext) => {
+    const userId = ctx.from?.id.toString();
+    if (!userId || !ADMIN_IDS.includes(userId)) {
+      ctx.reply('Access denied: You are not an admin.');
+      await ctx.answerCbQuery();
+      return;
+    }
+
+    const callbackQuery = ctx.callbackQuery;
+    if (!callbackQuery || !('data' in callbackQuery)) {
+      ctx.reply('Error: Invalid callback query.');
+      await ctx.answerCbQuery();
+      return;
+    }
+
+    const data = callbackQuery.data;
+    try {
+      if (data === 'back') {
+        const { state, subject, chapter } = ctx.session || {};
+        if (state?.startsWith('admin_awaiting_ids_')) {
+          const [, , selectedSubject, selectedChapter] = state.split('_');
+          const contentTypes = ['DPP', 'Notes', 'Lectures'];
+          const buttons = contentTypes.map(type => [Markup.button.callback(type, `admin_content_${selectedSubject}_${selectedChapter}_${type}`)]);
+          buttons.push([Markup.button.callback('Back', 'back')]);
+          await ctx.telegram.editMessageText(
+            ctx.chat?.id!,
+            ctx.session?.messageId!,
+            undefined,
+            'Select content type:',
+            Markup.inlineKeyboard(buttons)
+          );
+          ctx.session = { ...ctx.session, state: `admin_content_${selectedSubject}_${selectedChapter}` };
+        } else if (state?.startsWith('admin_content_')) {
+          const [, , selectedSubject] = state.split('_');
+          const chapters = SUBJECT_CHAPTERS[selectedSubject] || await getChapters(selectedSubject);
+          const pagination = paginate(chapters, 0, `admin_chapter_${selectedSubject}`);
+          await ctx.telegram.editMessageText(
+            ctx.chat?.id!,
+            ctx.session?.messageId!,
+            undefined,
+            'Select a chapter:',
+            pagination.reply_markup
+          );
+          ctx.session = { ...ctx.session, state: `admin_chapter_${selectedSubject}`, chapter: undefined, contentType: undefined };
+        } else if (state?.startsWith('admin_chapter_')) {
+          const subjects = Object.keys(SUBJECT_CHAPTERS);
+          const pagination = paginate(subjects, 0, 'admin_subject');
+          await ctx.telegram.editMessageText(
+            ctx.chat?.id!,
+            ctx.session?.messageId!,
+            undefined,
+            'Select a subject:',
+            pagination.reply_markup
+          );
+          ctx.session = { ...ctx.session, state: 'admin_subject', subject: undefined, chapter: undefined, contentType: undefined };
+        }
+      } else if (data.startsWith('paginate_admin_')) {
+        const [_, __, prefix, action, pageStr] = data.split('_');
+        const page = parseInt(pageStr);
+        if (isNaN(page)) {
+          ctx.reply('Error: Invalid page number.');
+          await ctx.answerCbQuery();
+          return;
+        }
+
+        let items: string[];
+        let replyText: string;
+        if (prefix === 'subject') {
+          items = Object.keys(SUBJECT_CHAPTERS);
+          replyText = 'Select a subject:';
+        } else if (prefix.startsWith('chapter_')) {
+          const subject = prefix.split('_')[1];
+          items = SUBJECT_CHAPTERS[subject] || await getChapters(subject);
+          replyText = 'Select a chapter:';
+        } else {
+          ctx.reply('Error: Invalid pagination context.');
+          await ctx.answerCbQuery();
+          return;
+        }
+
+        const pagination = paginate(items, page, `admin_${prefix}`);
+        if (pagination.totalPages <= page || page < 0) {
+          ctx.reply('Error: Page out of bounds.');
+          await ctx.answerCbQuery();
+          return;
+        }
+
         try {
-          const messageIds = textCtx.message.text.split(';').reduce((acc: Record<string, string>, pair: string) => {
-            const [num, id] = pair.split(',');
-            if (!id.includes('/')) {
-              throw new Error('Invalid message ID format. Use topic_id/message_id (e.g., 2/12345).');
-            }
-            const messageId = id.split('/')[1]; // Extract only the message_id (y) part
-            if (!messageId || isNaN(parseInt(messageId))) {
-              throw new Error('Invalid message ID. The message_id must be a valid number.');
-            }
-            acc[num] = messageId;
-            return acc;
-          }, {});
-          
-          await saveContent(subject, chapter, contentType, messageIds);
-          textCtx.reply('Content saved successfully!');
-          textCtx.session = { ...textCtx.session, state: undefined };
-        } catch (error) {
-          textCtx.reply(`Error saving content: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`);
+          await ctx.telegram.editMessageText(
+            ctx.chat?.id!,
+            ctx.session?.messageId!,
+            undefined,
+            replyText,
+            pagination.reply_markup
+          );
+        } catch (editError) {
+          console.warn('Failed to edit message, sending new one:', editError);
+          ctx.reply(replyText, pagination.reply_markup).then(msg => {
+            ctx.session = { ...ctx.session, messageId: msg.message_id };
+          });
         }
+        ctx.session = { ...ctx.session, state: `admin_${prefix}` };
+      } else if (data.startsWith('admin_subject_')) {
+        const subject = data.split('_')[2];
+        const chapters = SUBJECT_CHAPTERS[subject] || await getChapters(subject);
+        const pagination = paginate(chapters, 0, `admin_chapter_${subject}`);
+        try {
+          await ctx.telegram.editMessageText(
+            ctx.chat?.id!,
+            ctx.session?.messageId!,
+            undefined,
+            'Select a chapter:',
+            pagination.reply_markup
+          );
+        } catch (editError) {
+          console.warn('Failed to edit message, sending new one:', editError);
+          ctx.reply('Select a chapter:', pagination.reply_markup).then(msg => {
+            ctx.session = { ...ctx.session, messageId: msg.message_id };
+          });
+        }
+        ctx.session = { ...ctx.session, state: `admin_chapter_${subject}`, subject: subject };
+      } else if (data.startsWith('admin_chapter_')) {
+        const [_, __, subject, chapter] = data.split('_');
+        const contentTypes = ['DPP', 'Notes', 'Lectures'];
+        const buttons = contentTypes.map(type => [Markup.button.callback(type, `admin_content_${subject}_${chapter}_${type}`)]);
+        buttons.push([Markup.button.callback('Back', 'back')]);
+        try {
+          await ctx.telegram.editMessageText(
+            ctx.chat?.id!,
+            ctx.session?.messageId!,
+            undefined,
+            'Select content type:',
+            Markup.inlineKeyboard(buttons)
+          );
+        } catch (editError) {
+          console.warn('Failed to edit message, sending new one:', editError);
+          ctx.reply('Select content type:', Markup.inlineKeyboard(buttons)).then(msg => {
+            ctx.session = { ...ctx.session, messageId: msg.message_id };
+          });
+        }
+        ctx.session = { ...ctx.session, state: `admin_content_${subject}_${chapter}`, chapter };
+      } else if (data.startsWith('admin_content_')) {
+        const [_, subject, chapter, contentType] = data.split('_');
+        try {
+          await ctx.telegram.editMessageText(
+            ctx.chat?.id!,
+            ctx.session?.messageId!,
+            undefined,
+            `Please send message IDs for ${subject}/${chapter}/${contentType} in the format: 1,123;2,124;x,y`,
+            Markup.inlineKeyboard([[Markup.button.callback('Back', 'back')]])
+          );
+        } catch (editError) {
+          console.warn('Failed to edit message, sending new one:', editError);
+          ctx.reply(`Please send message IDs for ${subject}/${chapter}/${contentType} in the format: 1,123;2,124;x,y`, Markup.inlineKeyboard([[Markup.button.callback('Back', 'back')]])).then(msg => {
+            ctx.session = { ...ctx.session, messageId: msg.message_id };
+          });
+        }
+        ctx.session = { ...ctx.session, state: `admin_awaiting_ids_${subject}_${chapter}_${contentType}`, subject, chapter, contentType };
       }
-    });
-  };
+    } catch (error) {
+      console.error('Error in admin callback handler:', error);
+      ctx.reply('Error: Something went wrong. Please try again.');
+    } finally {
+      await ctx.answerCbQuery();
+    }
+  });
 }

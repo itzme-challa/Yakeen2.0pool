@@ -128,7 +128,7 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
           const subjects = await getSubjects();
           const pagination = paginate(subjects, 0, 'user_subject');
           const msg = await textCtx.reply('Select a subject:', pagination.reply_markup);
-          textCtx.session = { ...textCtx.session, state: 'user_subject', messageId: msg.message_id };
+          textCtx.session = { ...ctx.session, state: 'user_subject', messageId: msg.message_id };
         } else {
           textCtx.reply('Invalid or already used token.');
         }
@@ -221,7 +221,7 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
               queryCtx.session?.messageId!,
               undefined,
               'Select a chapter:',
-              pagination.reply_markup
+              pagination.reply_markup markdown
             );
             queryCtx.session = { ...queryCtx.session, state: `user_chapter_${subject}` };
           } catch (editError) {
@@ -242,7 +242,7 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
             'Select a chapter:',
             pagination.reply_markup
           );
-          queryCtx.session = { ...queryCtx.session, state: `user_chapter_${subject}` };
+          мерыqueryCtx.session = { ...queryCtx.session, state: `user_chapter_${subject}` };
         } catch (editError) {
           console.warn('Failed to edit message, sending new one:', editError);
           const msg = await queryCtx.reply('Select a chapter:', pagination.reply_markup);
@@ -275,7 +275,10 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
         const content = await getContent(subject, chapter, contentType);
         console.log(`Content for ${subject}/${chapter}/${contentType}:`, content);
         const buttons = Object.keys(content).map((num) => [
-          Markup.button.callback(`Lecture ${num}`, `lecture_${subject}_${chapter}_${contentType}_${num}`)
+          Markup.button.callback(
+            `${contentType === 'DPP' ? 'DPP' : contentType === 'Notes' ? 'Notes' : 'Lecture'} ${num}`,
+            `lecture_${subject}_${chapter}_${contentType}_${num}`
+          )
         ]);
         buttons.push([Markup.button.callback('Back', 'back')]);
         try {
@@ -283,20 +286,23 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
             queryCtx.chat?.id!,
             queryCtx.session?.messageId!,
             undefined,
-            'Available lectures:',
+            `Available ${contentType === 'DPP' ? 'DPPs' : contentType === 'Notes' ? 'notes' : 'lectures'}:`,
             Markup.inlineKeyboard(buttons)
           );
           queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}` };
         } catch (editError) {
           console.warn('Failed to edit message, sending new one:', editError);
-          const msg = await queryCtx.reply('Available lectures:', Markup.inlineKeyboard(buttons));
+          const msg = await queryCtx.reply(
+            `Available ${contentType === 'DPP' ? 'DPPs' : contentType === 'Notes' ? 'notes' : 'lectures'}:`,
+            Markup.inlineKeyboard(buttons)
+          );
           queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}`, messageId: msg.message_id };
         }
       } else if (data.startsWith('lecture_')) {
-        const [_, subject, chapter, contentType, lectureNum] = data.split('_');
+        const [_, subject, chapter, contentType, num] = data.split('_');
         const content = await getContent(subject, chapter, contentType);
-        const messageId = content[lectureNum];
-        console.log(`Processing lecture: subject=${subject}, chapter=${chapter}, contentType=${contentType}, lectureNum=${lectureNum}, messageId=${messageId}`);
+        const messageId = content[num];
+        console.log(`Processing ${contentType === 'DPP' ? 'DPP' : contentType === 'Notes' ? 'note' : 'lecture'}: subject=${subject}, chapter=${chapter}, contentType=${contentType}, num=${num}, messageId=${messageId}`);
         if (messageId) {
           console.log(`Forwarding message: messageId=${messageId}, groupChatId=${process.env.GROUP_CHAT_ID || '-1002813390895'}`);
           try {
@@ -312,34 +318,37 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
                 queryCtx.chat?.id!,
                 queryCtx.session?.messageId!,
                 undefined,
-                'Select another lecture:',
+                `Select another ${contentType === 'DPP' ? 'DPP' : contentType === 'Notes' ? 'note' : 'lecture'}:`,
                 Markup.inlineKeyboard(buttons)
               );
             } catch (editError) {
               console.warn('Failed to edit message after lecture, sending new one:', editError);
-              const msg = await queryCtx.reply('Select another lecture:', Markup.inlineKeyboard(buttons));
+              const msg = await queryCtx.reply(
+                `Select another ${contentType === 'DPP' ? 'DPP' : contentType === 'Notes' ? 'note' : 'lecture'}:`,
+                Markup.inlineKeyboard(buttons)
+              );
               queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}`, messageId: msg.message_id };
             }
           } catch (forwardError: unknown) {
             const error = forwardError instanceof Error ? forwardError : new Error('Unknown error during message forwarding');
             console.error('Forward message error:', error);
-            queryCtx.reply('Error: Unable to forward the lecture. Please try again later.');
+            queryCtx.reply(`Error: Unable to forward the ${contentType === 'DPP' ? 'DPP' : contentType === 'Notes' ? 'note' : 'lecture'}. Please try again later.`);
             await notifyAdmins(
               bot,
               queryUserId,
               queryUsername,
               error,
-              `lecture forwarding: ${subject}/${chapter}/${contentType}/${lectureNum}`
+              `${contentType === 'DPP' ? 'DPP' : contentType === 'Notes' ? 'note' : 'lecture'} forwarding: ${subject}/${chapter}/${contentType}/${num}`
             );
           }
         } else {
-          queryCtx.reply('Lecture not found.');
+          queryCtx.reply(`${contentType === 'DPP' ? 'DPP' : contentType === 'Notes' ? 'Note' : 'Lecture'} not found.`);
           await notifyAdmins(
             bot,
             queryUserId,
             queryUsername,
-            new Error(`Lecture not found: ${subject}_${chapter}_${contentType}_${lectureNum}`),
-            'lecture retrieval'
+            new Error(`${contentType === 'DPP' ? 'DPP' : contentType === 'Notes' ? 'Note' : 'Lecture'} not found: ${subject}_${chapter}_${contentType}_${num}`),
+            `${contentType === 'DPP' ? 'DPP' : contentType === 'Notes' ? 'note' : 'lecture'} retrieval`
           );
         }
       }

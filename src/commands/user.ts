@@ -28,16 +28,6 @@ function getFormattedDate(): string {
   return `${day}${month}${year}`;
 }
 
-// Helper function to parse messageId (e.g., "2/33" -> { threadId: "2", messageId: "33" })
-function parseMessageId(messageId: string): { threadId: string; messageId: string } | null {
-  const match = messageId.match(/^(\d+)\/(\d+)$/);
-  if (!match) return null;
-  return {
-    threadId: match[1],
-    messageId: match[2],
-  };
-}
-
 // Helper function to generate or retrieve token
 async function getOrGenerateToken(userId: string): Promise<string> {
   const today = getFormattedDate();
@@ -184,37 +174,23 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
         const messageId = content[lectureNum];
         console.log(`Processing lecture: subject=${subject}, chapter=${chapter}, contentType=${contentType}, lectureNum=${lectureNum}, messageId=${messageId}`); // Debug log
         if (messageId) {
-          const parsed = parseMessageId(messageId);
-          if (parsed) {
-            const { threadId, messageId: actualMessageId } = parsed;
-            console.log(`Forwarding message: threadId=${threadId}, messageId=${actualMessageId}, groupChatId=${process.env.GROUP_CHAT_ID || '-1002813390895'}`); // Debug log
-            try {
-              await queryCtx.telegram.forwardMessage(
-                queryCtx.chat?.id!,
-                process.env.GROUP_CHAT_ID || '-1002813390895',
-                parseInt(actualMessageId),
-                { message_thread_id: parseInt(threadId) } // Specify thread ID
-              );
-            } catch (forwardError: unknown) {
-              const error = forwardError instanceof Error ? forwardError : new Error('Unknown error during message forwarding');
-              console.error('Forward message error:', error);
-              queryCtx.reply('Error: Unable to forward the lecture. Please try again later.');
-              await notifyAdmins(
-                bot,
-                queryUserId,
-                queryUsername,
-                error,
-                `lecture forwarding: ${subject}/${chapter}/${contentType}/${lectureNum}`
-              );
-            }
-          } else {
-            queryCtx.reply('Error: Invalid lecture message format.');
+          console.log(`Forwarding message: messageId=${messageId}, groupChatId=${process.env.GROUP_CHAT_ID || '-1002813390895'}`); // Debug log
+          try {
+            await queryCtx.telegram.forwardMessage(
+              queryCtx.chat?.id!,
+              process.env.GROUP_CHAT_ID || '-1002813390895',
+              parseInt(messageId) // Directly use the message ID
+            );
+          } catch (forwardError: unknown) {
+            const error = forwardError instanceof Error ? forwardError : new Error('Unknown error during message forwarding');
+            console.error('Forward message error:', error);
+            queryCtx.reply('Error: Unable to forward the lecture. Please try again later.');
             await notifyAdmins(
               bot,
               queryUserId,
               queryUsername,
-              new Error(`Invalid messageId format: ${messageId} for ${subject}_${chapter}_${contentType}_${lectureNum}`),
-              'lecture retrieval'
+              error,
+              `lecture forwarding: ${subject}/${chapter}/${contentType}/${lectureNum}`
             );
           }
         } else {

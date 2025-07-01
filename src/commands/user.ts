@@ -128,7 +128,7 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
           const subjects = await getSubjects();
           const pagination = paginate(subjects, 0, 'user_subject');
           const msg = await textCtx.reply('Select a subject:', pagination.reply_markup);
-          textCtx.session = { ...textCtx.session, state: 'user_subject', messageId: msg.message_id };
+          textCtx.session = { ...ctx.session, state: 'user_subject', messageId: msg.message_id };
         } else {
           textCtx.reply('Invalid or already used token.');
         }
@@ -212,7 +212,7 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
             queryCtx.session = { ...queryCtx.session, state: 'user_subject', messageId: msg.message_id };
           }
         } else if (queryCtx.session?.state?.startsWith('content_')) {
-          const subject Tait = queryCtx.session.state.split('_')[1];
+          const subject: string = queryCtx.session.state.split('_')[1]; // Fixed: Proper variable declaration and typing
           const chapters = await getChapters(subject);
           const pagination = paginate(chapters, 0, `user_chapter_${subject}`);
           try {

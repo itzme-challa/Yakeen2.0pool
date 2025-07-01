@@ -7,9 +7,6 @@ interface MyContext extends Context {
   session: {
     state?: string;
     messageId?: number;
-    subject?: string;
-    chapter?: string;
-    contentType?: string;
   };
 }
 
@@ -61,70 +58,56 @@ async function notifyAdmins(bot: Telegraf<MyContext>, userId: string, username: 
 }
 
 export function user(bot: Telegraf<MyContext>) {
-  return (ctx: MyContext) => {
+  return async (ctx: MyContext) => {
     const userId = ctx.from?.id.toString();
     const username = ctx.from?.username || 'Unknown';
     if (!userId) {
       ctx.reply('Error: User ID not found.');
-      notifyAdmins(bot, 'Unknown', username, new Error('User ID not found'), 'user handler');
+      await notifyAdmins(bot, 'Unknown', username, new Error('User ID not found'), 'user handler');
       return;
     }
 
-    checkAccess(userId).then(hasAccess => {
-      if (hasAccess) {
-        getSubjects().then(subjects => {
-          const pagination = paginate(subjects, 0, 'user_subject');
-          ctx.reply('Select a subject:', pagination.reply_markup).then(msg => {
-            ctx.session = { ...ctx.session, state: 'user_subject', messageId: msg.message_id };
-          });
-        }).catch(error => {
-          ctx.reply('Error fetching subjects.');
-          notifyAdmins(bot, userId, username, error, 'fetch subjects');
-        });
-      } else {
-        getOrGenerateToken(userId).then(token => {
-          saveToken(token, userId, username).then(() => {
-            const apiKey = process.env.ADRINOLINK_API_KEY || '';
-            if (!apiKey) {
-              ctx.reply('Error: API key is missing.');
-              notifyAdmins(bot, userId, username, new Error('API key is missing'), 'link shortening');
-              return;
-            }
+    const hasAccess = await checkAccess(userId);
 
-            const date = getFormattedDate();
-            const userIdPart = userId.slice(0, 8);
-            const randomId = generateRandomId(6);
-            const alias = `${userIdPart}-${date}-${randomId}`.slice(0, 30);
+    if (hasAccess) {
+      const subjects = await getSubjects();
+      const pagination = paginate(subjects, 0, 'user_subject');
+      ctx.reply('Select a subject:', pagination.reply_markup).then(msg => {
+        ctx.session = { ...ctx.session, state: 'user_subject', messageId: msg.message_id };
+      });
+    } else {
+      const token = await getOrGenerateToken(userId);
+      await saveToken(token, userId, username);
 
-            const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
-            axios.get(`https://adrinolinks.in/api?api=${apiKey}&url=${encodeURIComponent(url)}&alias=${alias}`)
-              .then(response => {
-                console.log('AdrinoLinks API response:', response.data);
-                if (response.data.status === 'success' && response.data.shortenedUrl) {
-                  ctx.reply(`Click the link below to get 24-hour access:\n${response.data.shortenedUrl}`);
-                } else {
-                  ctx.reply('Error: Failed to shorten the link. Please try again later.');
-                  notifyAdmins(bot, userId, username, new Error(`Invalid API response: ${JSON.stringify(response.data)}`), 'link shortening');
-                }
-              })
-              .catch(error => {
-                console.error('Error shortening link:', error);
-                ctx.reply('Error: Unable to generate access link. Please try again later.');
-                notifyAdmins(bot, userId, username, error, 'link shortening');
-              });
-          }).catch(error => {
-            ctx.reply('Error saving token.');
-            notifyAdmins(bot, userId, username, error, 'save token');
-          });
-        }).catch(error => {
-          ctx.reply('Error generating token.');
-          notifyAdmins(bot, userId, username, error, 'generate token');
-        });
+      const apiKey = process.env.ADRINOLINK_API_KEY || '';
+      if (!apiKey) {
+        ctx.reply('Error: API key is missing.');
+        await notifyAdmins(bot, userId, username, new Error('API key is missing'), 'link shortening');
+        return;
       }
-    }).catch(error => {
-      ctx.reply('Error checking access.');
-      notifyAdmins(bot, userId, username, error, 'check access');
-    });
+
+      const date = getFormattedDate();
+      const userIdPart = userId.slice(0, 8);
+      const randomId = generateRandomId(6);
+      const alias = `${userIdPart}-${date}-${randomId}`.slice(0, 30);
+
+      const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
+      try {
+        const response = await axios.get(`https://adrinolinks.in/api?api=${apiKey}&url=${encodeURIComponent(url)}&alias=${alias}`);
+        console.log('AdrinoLinks API response:', response.data);
+
+        if (response.data.status === 'success' && response.data.shortenedUrl) {
+          ctx.reply(`Click the link below to get 24-hour access:\n${response.data.shortenedUrl}`);
+        } else {
+          ctx.reply('Error: Failed to shorten the link. Please try again later.');
+          await notifyAdmins(bot, userId, username, new Error(`Invalid API response: ${JSON.stringify(response.data)}`), 'link shortening');
+        }
+      } catch (error) {
+        console.error('Error shortening link:', error);
+        ctx.reply('Error: Unable to generate access link. Please try again later.');
+        await notifyAdmins(bot, userId, username, error, 'link shortening');
+      }
+    }
   };
 }
 
@@ -160,96 +143,48 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
     const callbackQuery = queryCtx.callbackQuery;
     if (!callbackQuery || !('data' in callbackQuery)) {
       await notifyAdmins(bot, queryUserId, queryUsername, new Error('Invalid callback query'), 'callback handler');
-      await queryCtx.answerCbQuery();
       return;
     }
 
     const data = callbackQuery.data;
     try {
-      if (data === 'back') {
-        const { state, subject, chapter, contentType } = queryCtx.session || {};
-        if (state?.startsWith('content_')) {
-          const [, selectedSubject, selectedChapter] = state.split('_');
-          const chapters = await getChapters(selectedSubject);
-          const pagination = paginate(chapters, 0, `user_chapter_${selectedSubject}`);
-          await queryCtx.telegram.editMessageText(
-            queryCtx.chat?.id!,
-            queryCtx.session?.messageId!,
-            undefined,
-            'Select a chapter:',
-            pagination.reply_markup
-          );
-          queryCtx.session = { ...queryCtx.session, state: `user_chapter_${selectedSubject}`, chapter: undefined, contentType: undefined };
-        } else if (state?.startsWith('lecture_')) {
-          const [, selectedSubject, selectedChapter, selectedContentType] = state.split('_');
-          const buttons = [
-            [Markup.button.callback('DPP', `content_${selectedSubject}_${selectedChapter}_DPP`)],
-            [Markup.button.callback('Notes', `content_${selectedSubject}_${selectedChapter}_Notes`)],
-            [Markup.button.callback('Lectures', `content_${selectedSubject}_${selectedChapter}_Lectures`)],
-            [Markup.button.callback('Back', 'back')]
-          ];
-          await queryCtx.telegram.editMessageText(
-            queryCtx.chat?.id!,
-            queryCtx.session?.messageId!,
-            undefined,
-            'Select content type:',
-            Markup.inlineKeyboard(buttons)
-          );
-          queryCtx.session = { ...queryCtx.session, state: `content_${selectedSubject}_${selectedChapter}`, contentType: undefined };
-        } else if (state?.startsWith('user_chapter_')) {
-          const subjects = await getSubjects();
-          const pagination = paginate(subjects, 0, 'user_subject');
-          await queryCtx.telegram.editMessageText(
-            queryCtx.chat?.id!,
-            queryCtx.session?.messageId!,
-            undefined,
-            'Select a subject:',
-            pagination.reply_markup
-          );
-          queryCtx.session = { ...queryCtx.session, state: 'user_subject', subject: undefined, chapter: undefined, contentType: undefined };
-        }
-      } else if (data.startsWith('paginate_user_')) {
+      if (data.startsWith('paginate_user_')) {
         const [_, __, prefix, action, pageStr] = data.split('_');
         const page = parseInt(pageStr);
         if (isNaN(page)) {
           queryCtx.reply('Error: Invalid page number.');
-          await queryCtx.answerCbQuery();
           return;
         }
 
         let items: string[];
-        let replyText: string;
         if (prefix === 'subject') {
           items = await getSubjects();
-          replyText = 'Select a subject:';
         } else if (prefix.startsWith('chapter_')) {
           const subject = prefix.split('_')[1];
           items = await getChapters(subject);
-          replyText = 'Select a chapter:';
         } else {
           queryCtx.reply('Error: Invalid pagination context.');
-          await queryCtx.answerCbQuery();
           return;
         }
 
         const pagination = paginate(items, page, `user_${prefix}`);
         if (pagination.totalPages <= page || page < 0) {
           queryCtx.reply('Error: Page out of bounds.');
-          await queryCtx.answerCbQuery();
           return;
         }
 
+        const messageText = prefix === 'subject' ? 'Select a subject:' : 'Select a chapter:';
         try {
           await queryCtx.telegram.editMessageText(
             queryCtx.chat?.id!,
             queryCtx.session?.messageId!,
             undefined,
-            replyText,
+            messageText,
             pagination.reply_markup
           );
         } catch (editError) {
           console.warn('Failed to edit message, sending new one:', editError);
-          queryCtx.reply(replyText, pagination.reply_markup).then(msg => {
+          queryCtx.reply(messageText, pagination.reply_markup).then(msg => {
             queryCtx.session = { ...queryCtx.session, messageId: msg.message_id };
           });
         }
@@ -258,72 +193,33 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
         const subject = data.split('_')[2];
         const chapters = await getChapters(subject);
         const pagination = paginate(chapters, 0, `user_chapter_${subject}`);
-        try {
-          await queryCtx.telegram.editMessageText(
-            queryCtx.chat?.id!,
-            queryCtx.session?.messageId!,
-            undefined,
-            'Select a chapter:',
-            pagination.reply_markup
-          );
-        } catch (editError) {
-          console.warn('Failed to edit message, sending new one:', editError);
-          queryCtx.reply('Select a chapter:', pagination.reply_markup).then(msg => {
-            queryCtx.session = { ...queryCtx.session, messageId: msg.message_id };
-          });
-        }
-        queryCtx.session = { ...queryCtx.session, state: `user_chapter_${subject}`, subject };
+        queryCtx.reply('Select a chapter:', pagination.reply_markup).then(msg => {
+          queryCtx.session = { ...queryCtx.session, state: `user_chapter_${subject}`, messageId: msg.message_id };
+        });
       } else if (data.startsWith('user_chapter_')) {
         const [_, __, subject, chapter] = data.split('_');
-        const buttons = [
+        queryCtx.reply('Select content type:', Markup.inlineKeyboard([
           [Markup.button.callback('DPP', `content_${subject}_${chapter}_DPP`)],
           [Markup.button.callback('Notes', `content_${subject}_${chapter}_Notes`)],
           [Markup.button.callback('Lectures', `content_${subject}_${chapter}_Lectures`)],
-          [Markup.button.callback('Back', 'back')]
-        ];
-        try {
-          await queryCtx.telegram.editMessageText(
-            queryCtx.chat?.id!,
-            queryCtx.session?.messageId!,
-            undefined,
-            'Select content type:',
-            Markup.inlineKeyboard(buttons)
-          );
-        } catch (editError) {
-          console.warn('Failed to edit message, sending new one:', editError);
-          queryCtx.reply('Select content type:', Markup.inlineKeyboard(buttons)).then(msg => {
-            queryCtx.session = { ...queryCtx.session, messageId: msg.message_id };
-          });
-        }
-        queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}`, chapter };
+        ])).then(msg => {
+          queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}`, messageId: msg.message_id };
+        });
       } else if (data.startsWith('content_')) {
         const [_, subject, chapter, contentType] = data.split('_');
         const content = await getContent(subject, chapter, contentType);
         console.log(`Content for ${subject}/${chapter}/${contentType}:`, content);
         const buttons = Object.keys(content).map((num) => [
-          Markup.button.callback(`${contentType} ${num}`, `lecture_${subject}_${chapter}_${contentType}_${num}`)
+          Markup.button.callback(`Lecture ${num}`, `lecture_${subject}_${chapter}_${contentType}_${num}`),
         ]);
-        buttons.push([Markup.button.callback('Back', 'back')]);
-        try {
-          await queryCtx.telegram.editMessageText(
-            queryCtx.chat?.id!,
-            queryCtx.session?.messageId!,
-            undefined,
-            `Available ${contentType.toLowerCase()}:`,
-            Markup.inlineKeyboard(buttons)
-          );
-        } catch (editError) {
-          console.warn('Failed to edit message, sending new one:', editError);
-          queryCtx.reply(`Available ${contentType.toLowerCase()}:`, Markup.inlineKeyboard(buttons)).then(msg => {
-            queryCtx.session = { ...queryCtx.session, messageId: msg.message_id };
-          });
-        }
-        queryCtx.session = { ...queryCtx.session, state: `lecture_${subject}_${chapter}_${contentType}`, contentType };
+        queryCtx.reply('Available lectures:', Markup.inlineKeyboard(buttons)).then(msg => {
+          queryCtx.session = { ...queryCtx.session, messageId: msg.message_id };
+        });
       } else if (data.startsWith('lecture_')) {
         const [_, subject, chapter, contentType, lectureNum] = data.split('_');
         const content = await getContent(subject, chapter, contentType);
         const messageId = content[lectureNum];
-        console.log(`Processing ${contentType}: subject=${subject}, chapter=${chapter}, contentType=${contentType}, lectureNum=${lectureNum}, messageId=${messageId}`);
+        console.log(`Processing lecture: subject=${subject}, chapter=${chapter}, contentType=${contentType}, lectureNum=${lectureNum}, messageId=${messageId}`);
         if (messageId) {
           console.log(`Forwarding message: messageId=${messageId}, groupChatId=${process.env.GROUP_CHAT_ID || '-1002813390895'}`);
           try {
@@ -335,23 +231,23 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
           } catch (forwardError: unknown) {
             const error = forwardError instanceof Error ? forwardError : new Error('Unknown error during message forwarding');
             console.error('Forward message error:', error);
-            queryCtx.reply('Error: Unable to forward the content. Please try again later.');
+            queryCtx.reply('Error: Unable to forward the lecture. Please try again later.');
             await notifyAdmins(
               bot,
               queryUserId,
               queryUsername,
               error,
-              `content forwarding: ${subject}/${chapter}/${contentType}/${lectureNum}`
+              `lecture forwarding: ${subject}/${chapter}/${contentType}/${lectureNum}`
             );
           }
         } else {
-          queryCtx.reply(`${contentType} not found.`);
+          queryCtx.reply('Lecture not found.');
           await notifyAdmins(
             bot,
             queryUserId,
             queryUsername,
-            new Error(`Content not found: ${subject}_${chapter}_${contentType}_${lectureNum}`),
-            'content retrieval'
+            new Error(`Lecture not found: ${subject}_${chapter}_${contentType}_${lectureNum}`),
+            'lecture retrieval'
           );
         }
       }

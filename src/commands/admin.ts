@@ -11,6 +11,12 @@ interface MyContext extends Context {
 
 const ALLOWED_ADMIN_IDS = ['6930703214', '6930903213'];
 
+// Local function to get subjects (hardcoded, not from Firebase)
+const getLocalSubjects = async (): Promise<string[]> => {
+  console.log('getLocalSubjects called'); // Debug log
+  return ['Zoology', 'Botany', 'Physics', 'Organic Chemistry', 'Inorganic Chemistry', 'Physical Chemistry'];
+};
+
 // Local function to get chapters (hardcoded, not from Firebase)
 async function getLocalChapters(subject: string): Promise<string[]> {
   console.log(`getLocalChapters called for subject: ${subject}`); // Debug log
@@ -47,11 +53,10 @@ export function admin(bot: Telegraf<MyContext>) {
       return;
     }
 
-    const subjects = ['Zoology', 'Botany', 'Physics', 'Organic Chemistry', 'Inorganic Chemistry', 'Physical Chemistry'];
-    
-    const pagination = paginate(subjects, 0, 'subject');
+    const subjects = await getLocalSubjects();
+    const pagination = paginate(subjects, 0, 'admin_subject');
     ctx.reply('Select a subject:', pagination.reply_markup).then(msg => {
-      ctx.session = { ...ctx.session, state: 'subject', messageId: msg.message_id };
+      ctx.session = { ...ctx.session, state: 'admin_subject', messageId: msg.message_id };
     });
 
     // Register callback query handler
@@ -64,8 +69,8 @@ export function admin(bot: Telegraf<MyContext>) {
 
       const data = callbackQuery.data;
       try {
-        if (data.startsWith('paginate_')) {
-          const [_, prefix, action, pageStr] = data.split('_');
+        if (data.startsWith('paginate_admin_')) {
+          const [_, __, prefix, action, pageStr] = data.split('_');
           const page = parseInt(pageStr);
           if (isNaN(page)) {
             queryCtx.reply('Error: Invalid page number.');
@@ -74,16 +79,16 @@ export function admin(bot: Telegraf<MyContext>) {
 
           let items: string[];
           if (prefix === 'subject') {
-            items = ['Zoology', 'Botany', 'Physics', 'Organic Chemistry', 'Inorganic Chemistry', 'Physical Chemistry'];
+            items = await getLocalSubjects();
           } else if (prefix.startsWith('chapter_')) {
             const subject = prefix.split('_')[1];
-            items = await getLocalChapters(subject); // Use local chapters
+            items = await getLocalChapters(subject);
           } else {
             queryCtx.reply('Error: Invalid pagination context.');
             return;
           }
 
-          const pagination = paginate(items, page, prefix);
+          const pagination = paginate(items, page, `admin_${prefix}`);
           if (pagination.totalPages <= page || page < 0) {
             queryCtx.reply('Error: Page out of bounds.');
             return;
@@ -104,21 +109,21 @@ export function admin(bot: Telegraf<MyContext>) {
               queryCtx.session = { ...queryCtx.session, messageId: msg.message_id };
             });
           }
-          queryCtx.session = { ...queryCtx.session, state: prefix };
-        } else if (data.startsWith('subject_')) {
-          const subject = data.split('_')[1];
-          console.log(`Processing subject selection: ${subject}`); // Debug log
-          const chapters = await getLocalChapters(subject); // Use local chapters
+          queryCtx.session = { ...queryCtx.session, state: `admin_${prefix}` };
+        } else if (data.startsWith('admin_subject_')) {
+          const subject = data.split('_')[2];
+          console.log(`Processing admin subject selection: ${subject}`);
+          const chapters = await getLocalChapters(subject);
           if (chapters.length === 0) {
             queryCtx.reply('No chapters available for this subject.');
             return;
           }
-          const pagination = paginate(chapters, 0, `chapter_${subject}`);
+          const pagination = paginate(chapters, 0, `admin_chapter_${subject}`);
           queryCtx.reply('Select a chapter:', pagination.reply_markup).then(msg => {
-            queryCtx.session = { ...queryCtx.session, state: `chapter_${subject}`, messageId: msg.message_id };
+            queryCtx.session = { ...queryCtx.session, state: `admin_chapter_${subject}`, messageId: msg.message_id };
           });
-        } else if (data.startsWith('chapter_')) {
-          const [_, subject, chapter] = data.split('_');
+        } else if (data.startsWith('admin_chapter_')) {
+          const [_, __, subject, chapter] = data.split('_');
           queryCtx.reply('Select content type:', Markup.inlineKeyboard([
             [Markup.button.callback('DPP', `content_${subject}_${chapter}_DPP`)],
             [Markup.button.callback('Notes', `content_${subject}_${chapter}_Notes`)],

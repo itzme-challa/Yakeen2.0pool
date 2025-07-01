@@ -14,17 +14,27 @@ interface MyContext extends Context {
 
 const ADMIN_IDS = ['6930703214', '6930903213'];
 
-const SUBJECT_CHAPTERS = {
-  'Zoology': ['Biomolecules', 'Cell Structure', 'Animal Kingdom', 'Structural Organisation', 'Human Physiology', 'Evolution', 'Genetics'],
-  'Botany': ['Plant Kingdom', 'Morphology of Flowering Plants', 'Anatomy of Flowering Plants', 'Plant Physiology', 'Reproduction in Plants', 'Genetics and Evolution', 'Biotechnology'],
-  'Physics': ['Mathematical Tools', 'Units and Measurements', 'Vectors', 'Optics', 'Modern Physics', 'Waves and Sound', 'Kinematics'],
+interface SubjectChapters {
+  [key: string]: string[];
+  Zoology: string[];
+  Botany: string[];
+  Physics: string[];
+  'Organic Chemistry': string[];
+  'Inorganic Chemistry': string[];
+  'Physical Chemistry': string[];
+}
+
+const SUBJECT_CHAPTERS: SubjectChapters = {
+  Zoology: ['Biomolecules', 'Cell Structure', 'Animal Kingdom', 'Structural Organisation', 'Human Physiology', 'Evolution', 'Genetics'],
+  Botany: ['Plant Kingdom', 'Morphology of Flowering Plants', 'Anatomy of Flowering Plants', 'Plant Physiology', 'Reproduction in Plants', 'Genetics and Evolution', 'Biotechnology'],
+  Physics: ['Mathematical Tools', 'Units and Measurements', 'Vectors', 'Optics', 'Modern Physics', 'Waves and Sound', 'Kinematics'],
   'Organic Chemistry': ['Hydrocarbons', 'Alcohols and Phenols', 'Aldehydes and Ketones', 'Carboxylic Acids', 'Amines', 'Biomolecules', 'Polymers'],
   'Inorganic Chemistry': ['Periodic Table', 'Chemical Bonding', 'Coordination Compounds', 'Metallurgy', 'P-Block Elements', 'D-Block Elements', 'S-Block Elements'],
   'Physical Chemistry': ['Some Basic Concepts', 'Atomic Structure', 'Chemical Kinetics', 'Thermodynamics', 'Equilibrium', 'Electrochemistry', 'States of Matter', 'Solutions']
 };
 
 export function admin(bot: Telegraf<MyContext>) {
-  bot.command('admin', async (ctx: MyContext) => {
+  return (ctx: MyContext) => {
     const userId = ctx.from?.id.toString();
     if (!userId || !ADMIN_IDS.includes(userId)) {
       ctx.reply('Access denied: You are not an admin.');
@@ -36,16 +46,23 @@ export function admin(bot: Telegraf<MyContext>) {
     ctx.reply('Select a subject:', pagination.reply_markup).then(msg => {
       ctx.session = { ...ctx.session, state: 'admin_subject', messageId: msg.message_id };
     });
-  });
+  };
+}
 
+export function registerAdminHandlers(bot: Telegraf<MyContext>) {
   bot.on('text', async (ctx: MyContext) => {
     const userId = ctx.from?.id.toString();
     if (!userId || !ADMIN_IDS.includes(userId) || !ctx.session?.state?.startsWith('admin_awaiting_ids_')) {
       return;
     }
 
+    if (!ctx.message || !('text' in ctx.message) || typeof ctx.message.text !== 'string') {
+      ctx.reply('Please provide message IDs in the format: 1,123;2,124;x,y');
+      return;
+    }
+
     const [, , subject, chapter, contentType] = ctx.session.state.split('_');
-    const input = ctx.message?.text?.trim();
+    const input = ctx.message.text.trim();
     if (!input) {
       ctx.reply('Please provide message IDs in the format: 1,123;2,124;x,y');
       return;
@@ -53,9 +70,9 @@ export function admin(bot: Telegraf<MyContext>) {
 
     try {
       const messageIds: Record<string, string> = {};
-      const pairs = input.split(';').map(pair => pair.trim());
+      const pairs = input.split(';').map((pair: string) => pair.trim());
       for (const pair of pairs) {
-        const [num, id] = pair.split(',').map(s => s.trim());
+        const [num, id] = pair.split(',').map((s: string) => s.trim());
         if (!num || !id || isNaN(parseInt(num)) || isNaN(parseInt(id))) {
           ctx.reply(`Invalid format in pair "${pair}". Use: number,messageId (e.g., 1,123)`);
           return;

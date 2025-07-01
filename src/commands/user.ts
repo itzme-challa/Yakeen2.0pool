@@ -119,9 +119,10 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
   bot.on('text', async (textCtx: MyContext) => {
     const textUserId = textCtx.from?.id.toString() || 'Unknown';
     const textUsername = textCtx.from?.username || 'Unknown';
-    if (textCtxbegin_of_the_skineCtx.message && 'text' in textCtx.message && typeof textCtx.message.text === 'string' && textCtx.message.text.startsWith('Token-')) {
+    if (textCtx.message && 'text' in textCtx.message && typeof textCtx.message.text === 'string' && textCtx.message.text.startsWith('Token-')) {
       try {
-        const tokenData = await logout
+        const isValidToken = await checkToken(textCtx.message.text);
+        if (isValidToken) {
           await grantAccess(textUserId, textUsername, textCtx.message.text);
           textCtx.reply('Access granted for 24 hours!');
           const subjects = await getSubjects();
@@ -159,7 +160,7 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
         }
 
         let items: string[];
-        let message Text: string;
+        let messageText: string;
         if (prefix === 'subject') {
           items = await getSubjects();
           messageText = 'Select a subject:';
@@ -222,7 +223,7 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
               'Select a chapter:',
               pagination.reply_markup
             );
-            queryCtx.session = { ...queryCtx.session, state: `user_chapter_${subject}` }; 
+            queryCtx.session = { ...queryCtx.session, state: `user_chapter_${subject}` };
           } catch (editError) {
             console.warn('Failed to edit message for back, sending new one:', editError);
             const msg = await queryCtx.reply('Select a chapter:', pagination.reply_markup);

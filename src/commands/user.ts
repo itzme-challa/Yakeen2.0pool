@@ -6,6 +6,7 @@ import axios from 'axios';
 interface MyContext extends Context {
   session: {
     state?: string;
+    messageId?: number;
   };
 }
 
@@ -31,12 +32,10 @@ function getFormattedDate(): string {
 // Helper function to generate or retrieve token
 async function getOrGenerateToken(userId: string): Promise<string> {
   const today = getFormattedDate();
-  // Check for existing unused token for today
   const existingToken = await findExistingToken(userId, today);
   if (existingToken) {
     return existingToken;
   }
-  // Generate new token
   const randomId = generateRandomId(6);
   return `Token-${userId}-${randomId}-${today}`;
 }
@@ -72,8 +71,10 @@ export function user(bot: Telegraf<MyContext>) {
 
     if (hasAccess) {
       const subjects = await getSubjects();
-      ctx.reply('Select a subject:', paginate(subjects, 0, 'subject'));
-      ctx.session = { ...ctx.session, state: 'subject' };
+      const pagination = paginate(subjects, 0, 'subject');
+      ctx.reply('Select a subject:', pagination.reply_markup).then(msg => {
+        ctx.session = { ...ctx.session, state: 'subject', messageId: msg.message_id };
+      });
     } else {
       const token = await getOrGenerateToken(userId);
       await saveToken(token, userId, username);
@@ -85,11 +86,10 @@ export function user(bot: Telegraf<MyContext>) {
         return;
       }
 
-      // Generate alias: xxx-zzz-kkk
-      const date = getFormattedDate(); // DDMMYYYY (8 chars)
-      const userIdPart = userId.slice(0, 8); // Limit userId to 8 chars
-      const randomId = generateRandomId(6); // 6-char random ID
-      const alias = `${userIdPart}-${date}-${randomId}`.slice(0, 30); // Ensure under 30 chars
+      const date = getFormattedDate();
+      const userIdPart = userId.slice(0, 8);
+      const randomId = generateRandomId(6);
+      const alias = `${userIdPart}-${date}-${randomId}`.slice(0, 30);
 
       const url = `https://t.me/NeetJeestudy_bot?text=${token}`;
       try {
@@ -111,7 +111,6 @@ export function user(bot: Telegraf<MyContext>) {
   };
 }
 
-// Register text and callback query handlers outside the command
 export function registerUserHandlers(bot: Telegraf<MyContext>) {
   bot.on('text', async (textCtx: MyContext) => {
     const textUserId = textCtx.from?.id.toString() || 'Unknown';
@@ -123,8 +122,10 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
           await grantAccess(textUserId, textUsername, textCtx.message.text);
           textCtx.reply('Access granted for 24 hours!');
           const subjects = await getSubjects();
-          textCtx.reply('Select a subject:', paginate(subjects, 0, 'subject'));
-          textCtx.session = { ...textCtx.session, state: 'subject' };
+          const pagination = paginate(subjects, 0, 'subject');
+          textCtx.reply('Select a subject:', pagination.reply_markup).then(msg => {
+            textCtx.session = { ...textCtx.session, state: 'subject', messageId: msg.message_id };
+          });
         } else {
           textCtx.reply('Invalid or already used token.');
         }
@@ -147,39 +148,85 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
 
     const data = callbackQuery.data;
     try {
-      if (data.startsWith('subject_')) {
+      if (data.startsWith('paginate_')) {
+        const [_, prefix, action, pageStr] = data.split('_');
+        const page = parseInt(pageStr);
+        if (isNaN(page)) {
+          queryCtx.reply('Error: Invalid page number.');
+          return;
+        }
+
+        let items: string[];
+        if (prefix === 'subject') {
+          items = await getSubjects();
+        } else if (prefix.startsWith('chapter_')) {
+          const subject = prefix.split('_')[1];
+          items = await getChapters(subject); // Use Firebase for users
+        } else {
+          queryCtx.reply('Error: Invalid pagination context.');
+          return;
+        }
+
+        const pagination = paginate(items, page, prefix);
+        if (pagination.totalPages <= page || page < 0) {
+          queryCtx.reply('Error: Page out of bounds.');
+          return;
+        }
+
+        const messageText = prefix === 'subject' ? 'Select a subject:' : 'Select a chapter:';
+        try {
+          await queryCtx.telegram.editMessageText(
+            queryCtx.chat?.id!,
+            queryCtx.session?.messageId!,
+            undefined,
+            messageText,
+            pagination.reply_markup
+          );
+        } catch (editError) {
+          console.warn('Failed to edit message, sending new one:', editError);
+          queryCtx.reply(messageText, pagination.reply_markup).then(msg => {
+            queryCtx.session = { ...queryCtx.session, messageId: msg.message_id };
+          });
+        }
+        queryCtx.session = { ...queryCtx.session, state: prefix };
+      } else if (data.startsWith('subject_')) {
         const subject = data.split('_')[1];
         const chapters = await getChapters(subject);
-        queryCtx.reply('Select a chapter:', paginate(chapters, 0, `chapter_${subject}`));
-        queryCtx.session = { ...queryCtx.session, state: `chapter_${subject}` };
+        const pagination = paginate(chapters, 0, `chapter_${subject}`);
+        queryCtx.reply('Select a chapter:', pagination.reply_markup).then(msg => {
+          queryCtx.session = { ...queryCtx.session, state: `chapter_${subject}`, messageId: msg.message_id };
+        });
       } else if (data.startsWith('chapter_')) {
         const [_, subject, chapter] = data.split('_');
         queryCtx.reply('Select content type:', Markup.inlineKeyboard([
           [Markup.button.callback('DPP', `content_${subject}_${chapter}_DPP`)],
           [Markup.button.callback('Notes', `content_${subject}_${chapter}_Notes`)],
           [Markup.button.callback('Lectures', `content_${subject}_${chapter}_Lectures`)],
-        ]));
-        queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}` };
+        ])).then(msg => {
+          queryCtx.session = { ...queryCtx.session, state: `content_${subject}_${chapter}`, messageId: msg.message_id };
+        });
       } else if (data.startsWith('content_')) {
         const [_, subject, chapter, contentType] = data.split('_');
         const content = await getContent(subject, chapter, contentType);
-        console.log(`Content for ${subject}/${chapter}/${contentType}:`, content); // Debug log
+        console.log(`Content for ${subject}/${chapter}/${contentType}:`, content);
         const buttons = Object.keys(content).map((num) => [
           Markup.button.callback(`Lecture ${num}`, `lecture_${subject}_${chapter}_${contentType}_${num}`),
         ]);
-        queryCtx.reply('Available lectures:', Markup.inlineKeyboard(buttons));
+        queryCtx.reply('Available lectures:', Markup.inlineKeyboard(buttons)).then(msg => {
+          queryCtx.session = { ...queryCtx.session, messageId: msg.message_id };
+        });
       } else if (data.startsWith('lecture_')) {
         const [_, subject, chapter, contentType, lectureNum] = data.split('_');
         const content = await getContent(subject, chapter, contentType);
         const messageId = content[lectureNum];
-        console.log(`Processing lecture: subject=${subject}, chapter=${chapter}, contentType=${contentType}, lectureNum=${lectureNum}, messageId=${messageId}`); // Debug log
+        console.log(`Processing lecture: subject=${subject}, chapter=${chapter}, contentType=${contentType}, lectureNum=${lectureNum}, messageId=${messageId}`);
         if (messageId) {
-          console.log(`Forwarding message: messageId=${messageId}, groupChatId=${process.env.GROUP_CHAT_ID || '-1002813390895'}`); // Debug log
+          console.log(`Forwarding message: messageId=${messageId}, groupChatId=${process.env.GROUP_CHAT_ID || '-1002813390895'}`);
           try {
             await queryCtx.telegram.forwardMessage(
               queryCtx.chat?.id!,
               process.env.GROUP_CHAT_ID || '-1002813390895',
-              parseInt(messageId) // Directly use the message ID
+              parseInt(messageId)
             );
           } catch (forwardError: unknown) {
             const error = forwardError instanceof Error ? forwardError : new Error('Unknown error during message forwarding');
@@ -194,7 +241,7 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
             );
           }
         } else {
-          queryCtx.reply('Lecture not found.');
+          query457Ctx.reply('Lecture not found.');
           await notifyAdmins(
             bot,
             queryUserId,
@@ -209,7 +256,6 @@ export function registerUserHandlers(bot: Telegraf<MyContext>) {
       queryCtx.reply('Error: Something went wrong. Please try again.');
       await notifyAdmins(bot, queryUserId, queryUsername, error, 'callback handler');
     } finally {
-      // Answer the callback query to remove the loading state
       await queryCtx.answerCbQuery();
     }
   });

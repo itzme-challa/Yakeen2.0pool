@@ -11,6 +11,29 @@ interface MyContext extends Context {
 
 const ALLOWED_ADMIN_IDS = ['6930703214', '6930903213'];
 
+// Local function to get chapters (hardcoded, not from Firebase)
+async function getLocalChapters(subject: string): Promise<string[]> {
+  switch (subject) {
+    case 'Zoology':
+      return ['Biomolecules', 'Cell Structure', 'Animal Kingdom', 'Structural Organisation', 
+              'Human Physiology', 'Evolution', 'Genetics'];
+    case 'Physics':
+      return ['Mathematical Tools', 'Units and Measurements', 'Vectors', 'Optics', 
+              'Modern Physics', 'Waves and Sound', 'Kinematics'];
+    case 'Organic Chemistry':
+      return ['Hydrocarbons', 'Alcohols and Phenols', 'Aldehydes and Ketones', 
+              'Carboxylic Acids', 'Amines', 'Biomolecules', 'Polymers'];
+    case 'Inorganic Chemistry':
+      return ['Periodic Table', 'Chemical Bonding', 'Coordination Compounds', 
+              'Metallurgy', 'P-Block Elements', 'D-Block Elements', 'S-Block Elements'];
+    case 'Physical Chemistry':
+      return ['Some Basic concepts', 'Atomic Structure', 'Chemical Kinetics', 'Thermodynamics', 
+              'Equilibrium', 'Electrochemistry', 'States of Matter', 'Solutions'];
+    default:
+      return [];
+  }
+}
+
 export function admin(bot: Telegraf<MyContext>) {
   return async (ctx: MyContext) => {
     const userId = ctx.from?.id.toString();
@@ -32,7 +55,7 @@ export function admin(bot: Telegraf<MyContext>) {
       const data = callbackQuery.data;
       if (data.startsWith('subject_')) {
         const subject = data.split('_')[1];
-        const chapters = await getChapters(subject);
+        const chapters = await getLocalChapters(subject); // Use local chapters, not Firebase
         queryCtx.reply('Select a chapter:', paginate(chapters, 0, `chapter_${subject}`));
         queryCtx.session = { ...queryCtx.session, state: `chapter_${subject}` };
       } else if (data.startsWith('chapter_')) {
@@ -76,26 +99,4 @@ export function admin(bot: Telegraf<MyContext>) {
       }
     });
   };
-}
-
-async function getChapters(subject: string): Promise<string[]> {
-  switch (subject) {
-    case 'Zoology':
-      return ['Biomolecules', 'Cell Structure', 'Animal Kingdom', 'Structural Organisation', 
-              'Human Physiology', 'Evolution', 'Genetics'];
-    case 'Physics':
-      return ['Mathematical Tools', 'Units and Measurements', 'Vectors', 'Optics', 
-              'Modern Physics', 'Waves and Sound', 'Kinematics'];
-    case 'Organic Chemistry':
-      return ['Hydrocarbons', 'Alcohols and Phenols', 'Aldehydes and Ketones', 
-              'Carboxylic Acids', 'Amines', 'Biomolecules', 'Polymers'];
-    case 'Inorganic Chemistry':
-      return ['Periodic Table', 'Chemical Bonding', 'Coordination Compounds', 
-              'Metallurgy', 'P-Block Elements', 'D-Block Elements', 'S-Block Elements'];
-    case 'Physical Chemistry':
-      return ['Some Basic concepts', 'Atomic Structure', 'Chemical Kinetics', 'Thermodynamics', 
-              'Equilibrium', 'Electrochemistry', 'States of Matter', 'Solutions'];
-    default:
-      return [];
-  }
 }
